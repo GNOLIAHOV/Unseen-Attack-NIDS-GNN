@@ -1,0 +1,96 @@
+[
+  {
+    "rows": 200000,
+    "eval_time_sec": 17.27,
+    "before_uq": {
+      "precision": 0.7782115721800117,
+      "recall": 0.9950825797772962,
+      "f1": 0.8733855891902529,
+      "pr_auc": 0.980534784906937,
+      "TP": 133152,
+      "FP": 37948,
+      "TN": 28242,
+      "FN": 658
+    },
+    "three_way_uq": {
+      "precision": 0.7939687102988805,
+      "recall": 0.99481354158882,
+      "f1": 0.8831156769021027,
+      "pr_auc": 0.8396995692111132,
+      "TP": 133116,
+      "FP": 34543,
+      "TN": 31647,
+      "FN": 694,
+      "branch1_trusted_benign_count": 32341,
+      "branch2_known_attack_count": 97646,
+      "branch3_zeroday_alert_count": 70013,
+      "tp_from_branch2_known": 93296,
+      "tp_from_branch3_zeroday_uq": 39820,
+      "mean_prob_avg": 0.6829837560653687,
+      "epistemic_std_avg": 0.1247284859418869,
+      "confident_zone_coverage": 0.649935,
+      "confident_zone_precision": 0.955451324170985,
+      "confident_zone_recall": 0.9926162357697628,
+      "confident_zone_f1": 0.9736792669435805,
+      "confident_zone_fp": 4350
+    },
+    "split": "Test_seen",
+    "total_file_rows": 11372076
+  },
+  {
+    "rows": 53861,
+    "eval_time_sec": 1.88,
+    "before_uq": {
+      "precision": 1.0,
+      "recall": 0.7583594808859843,
+      "f1": 0.8625761559335635,
+      "pr_auc": 1.0,
+      "TP": 40846,
+      "FP": 0,
+      "TN": 0,
+      "FN": 13015
+    },
+    "three_way_uq": {
+      "precision": 1.0,
+      "recall": 0.8226360446334082,
+      "f1": 0.9026882213325998,
+      "pr_auc": 1.0,
+      "TP": 44308,
+      "FP": 0,
+      "TN": 0,
+      "FN": 9553,
+      "branch1_trusted_benign_count": 9553,
+      "branch2_known_attack_count": 28,
+      "branch3_zeroday_alert_count": 44280,
+      "tp_from_branch2_known": 28,
+      "tp_from_branch3_zeroday_uq": 44280,
+      "mean_prob_avg": 0.2747368812561035,
+      "epistemic_std_avg": 0.24908752739429474,
+      "confident_zone_coverage": 0.17788381203468187,
+      "confident_zone_precision": 1.0,
+      "confident_zone_recall": 0.0029224506836447134,
+      "confident_zone_f1": 0.005827869705484442,
+      "confident_zone_fp": 0
+    },
+    "split": "Test_unseen (Zero-day)",
+    "total_file_rows": 53861,
+    "zero_day_breakdown": {
+      "Exploits": {
+        "total": 31551,
+        "detected_total": 26167,
+        "recall_total": 0.8293556464137428,
+        "caught_by_branch2_known": 26,
+        "caught_by_branch3_uq_alert": 26141,
+        "mean_std": 0.2533162534236908
+      },
+      "Fuzzers": {
+        "total": 22310,
+        "detected_total": 18141,
+        "recall_total": 0.8131331241595697,
+        "caught_by_branch2_known": 2,
+        "caught_by_branch3_uq_alert": 18139,
+        "mean_std": 0.2431071549654007
+      }
+    }
+  }
+]

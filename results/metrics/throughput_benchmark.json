@@ -1,0 +1,38 @@
+{
+  "device": "cpu",
+  "batch_size": 4096,
+  "num_neighbors": [
+    10,
+    10
+  ],
+  "warmup_batches": 5,
+  "measured_batches": 50,
+  "scenario_1_standard_T1": {
+    "mc_passes_T": 1,
+    "measured_batches": 50,
+    "total_flows_processed": 204800,
+    "total_time_sec": 1.2196,
+    "avg_batch_latency_ms": 24.25,
+    "p95_batch_latency_ms": 27.05,
+    "per_flow_latency_us": 5.95,
+    "throughput_flows_per_sec": 167927.5,
+    "peak_vram_mb": 0.0,
+    "peak_ram_mb": 496.73
+  },
+  "scenario_2_mc_dropout_T20": {
+    "mc_passes_T": 20,
+    "measured_batches": 50,
+    "total_flows_processed": 204800,
+    "total_time_sec": 26.1368,
+    "avg_batch_latency_ms": 522.61,
+    "p95_batch_latency_ms": 572.91,
+    "per_flow_latency_us": 127.62,
+    "throughput_flows_per_sec": 7835.71,
+    "peak_vram_mb": 0.0,
+    "peak_ram_mb": 500.67
+  },
+  "tradeoff_analysis": {
+    "throughput_slowdown_factor": 21.43,
+    "latency_increase_factor": 21.55
+  }
+}
