@@ -88,7 +88,7 @@ FEATURE_COLS = CATEGORICAL_COLS + NUMERICAL_COLS
 LABEL_NAMES = {
     0: "Benign (Trusted)",
     1: "Known Attack",
-    2: "Zero-day Alert (High Epistemic Uncertainty)",
+    2: "Unseen Attack Alert (High Epistemic Uncertainty)",
 }
 
 
@@ -355,9 +355,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="NF-UQ-NIDS-v2 Zero-day Detection API",
+    title="NF-UQ-NIDS-v2 Unseen Attack Detection API",
     description=(
-        "Backend API phát hiện xâm nhập mạng và tấn công Zero-day sử dụng kiến trúc "
+        "Backend API phát hiện xâm nhập mạng và Unseen Attack sử dụng kiến trúc "
         "Inductive Edge-Aware GATv2 kết hợp Định lượng bất định 3 nhánh (Three-way MC Dropout UQ)."
     ),
     version="1.0.0",
@@ -388,7 +388,7 @@ class FlowItem(BaseModel):
 class PredictBatchRequest(BaseModel):
     flows: list[FlowItem] = Field(..., description="Danh sách các luồng NetFlow trong micro-batch")
     mc_samples: int = Field(default=DEFAULT_MC_SAMPLES_T, ge=2, le=100, description="Số lần lấy mẫu MC Dropout (T)")
-    std_threshold: float = Field(default=DEFAULT_STD_THRESHOLD, gt=0.0, lt=1.0, description="Ngưỡng Epistemic Std phát hiện Zero-day")
+    std_threshold: float = Field(default=DEFAULT_STD_THRESHOLD, gt=0.0, lt=1.0, description="Ngưỡng Epistemic Std phát hiện Unseen Attack")
 
 
 # =============================================================================

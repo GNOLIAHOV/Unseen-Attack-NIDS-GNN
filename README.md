@@ -1,4 +1,4 @@
-#  Nghiên cứu biểu diễn đồ thị và Graph Neural Network cho phát hiện các họ tấn công chưa xuất hiện trong huấn luyện trên dữ liệu NetFlow
+# Nghiên cứu biểu diễn đồ thị và Graph Neural Network cho phát hiện các họ tấn công chưa xuất hiện trong huấn luyện trên dữ liệu NetFlow
 
 [![Python 3.10](https://img.shields.io/badge/Python-3.10-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.14-ee4c2c.svg)](https://pytorch.org/)
@@ -11,7 +11,7 @@
 
 ---
 
-##  1. Giới thiệu & Bối cảnh Nghiên cứu
+## 1. Giới thiệu & Bối cảnh Nghiên cứu
 
 Các Hệ thống Phát hiện Xâm nhập Mạng (NIDS) dựa trên Học máy truyền thống thường đạt độ chính xác rất cao trên các cuộc tấn công đã biết (seen attacks), nhưng lại suy giảm hiệu năng nghiêm trọng khi đối mặt với **các họ tấn công mới chưa từng xuất hiện trong quá trình huấn luyện (unseen attack families — mô phỏng tấn công zero-day)**. Nguyên nhân cốt lõi là do các mô hình bảng (tabular models) xử lý từng luồng mạng (flow) một cách độc lập, bỏ qua cấu trúc liên kết toàn cục giữa các máy trạm (hosts) và đưa ra dự đoán quá tự tin (overconfident predictions) trên dữ liệu ngoại lai (**Out-of-Distribution - OOD**).
 
@@ -21,7 +21,7 @@ Dự án này giải quyết bài toán trên thông qua hai trụ cột kỹ th
 
 ---
 
-##  2. Cấu trúc Thư mục Dự án (Repository Structure)
+## 2. Cấu trúc Thư mục Dự án (Repository Structure)
 
 Dự án được tổ chức theo chuẩn **MLOps**, tách biệt rõ ràng giữa dữ liệu, mô hình, mã nguồn huấn luyện/đánh giá và ứng dụng nguyên mẫu:
 
@@ -75,7 +75,7 @@ KLTN_NF-UQ-NIDS-v2/
 
 ---
 
-##  3. Kiến trúc Hệ thống & Đóng góp Thực nghiệm
+## 3. Kiến trúc Hệ thống & Đóng góp Thực nghiệm
 
 ### 3.1. Giao thức Chia dữ liệu Inductive Chống Rò rỉ (Zero-day Simulation Protocol)
 - Toàn bộ **75,987,976** bản ghi ban đầu được lọc bỏ dòng trùng lặp còn **75,867,694** luồng duy nhất (trên **284,339** địa chỉ IP duy nhất).
@@ -111,7 +111,7 @@ Với mỗi luồng giao tiếp $e=(u, v)$ trong một micro-batch/sliding windo
 
 ---
 
-##  4. Hướng dẫn Cài đặt & Khởi chạy Demo
+## 4. Hướng dẫn Cài đặt & Khởi chạy Demo
 
 ### 4.1. Cài đặt Môi trường
 Yêu cầu hệ thống: **Python 3.10+**. Khuyến nghị kích hoạt môi trường ảo (`virtual environment`) và cài đặt các thư viện từ `requirements.txt`:
@@ -146,7 +146,7 @@ Mở **2 cửa sổ Terminal** tại thư mục gốc của dự án (đã kích
 
 ---
 
-##  5. Thông tin Nhóm Thực hiện
+## 5. Thông tin Nhóm Thực hiện
 
 - **Nhóm thực hiện:** Nhóm 23
 - **Sinh viên thực hiện:**

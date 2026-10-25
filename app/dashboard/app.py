@@ -9,8 +9,7 @@ import streamlit as st
 # 1. CẤU HÌNH TRANG & STYLE GIAO DIỆN (STREAMLIT CONFIG)
 # =============================================================================
 st.set_page_config(
-    page_title="NIDS Dashboard: Zero-day Detection via Epistemic Uncertainty",
-    page_icon="🛡️",
+    page_title="NIDS Dashboard: Unseen Attack Detection via Epistemic Uncertainty",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -96,12 +95,12 @@ def render_uncertainty_scatter_plot(df_pred: pd.DataFrame, std_threshold: float)
     palette = {
         "Benign (Trusted)": "#16a34a",
         "Known Attack": "#ea580c",
-        "Zero-day Alert (High Epistemic Uncertainty)": "#dc2626",
+        "Unseen Attack Alert (High Epistemic Uncertainty)": "#dc2626",
     }
     markers = {
         "Benign (Trusted)": "o",
         "Known Attack": "s",
-        "Zero-day Alert (High Epistemic Uncertainty)": "^",
+        "Unseen Attack Alert (High Epistemic Uncertainty)": "^",
     }
 
     y_max = max(0.45, float(df_pred["epistemic_std"].max()) * 1.15 if len(df_pred) > 0 else 0.45)
@@ -145,7 +144,7 @@ def render_uncertainty_scatter_plot(df_pred: pd.DataFrame, std_threshold: float)
     ax.text(
         0.02,
         y_max * 0.90,
-        "VÙNG CẢNH BÁO ZERO-DAY / OOD (Nhánh 3: Std > Threshold)\nCác mẫu Zero-day lơ lửng ở vùng bất định nhận thức cao",
+        "VÙNG CẢNH BÁO UNSEEN ATTACK / OOD (Nhánh 3: Std > Threshold)\nCác mẫu Unseen Attack lơ lửng ở vùng bất định nhận thức cao",
         fontsize=9.5,
         fontweight="bold",
         color="#991b1b",
@@ -184,9 +183,9 @@ def render_uncertainty_scatter_plot(df_pred: pd.DataFrame, std_threshold: float)
 
 
 def highlight_zeroday_rows(row: pd.Series):
-    """Bôi đỏ nổi bật các dòng được phát hiện là Zero-day Alert và tô cam nhẹ Known Attack."""
+    """Bôi đỏ nổi bật các dòng được phát hiện là Unseen Attack Alert và tô cam nhẹ Known Attack."""
     pred_class = str(row.get("predicted_class", ""))
-    if "Zero-day Alert" in pred_class:
+    if "Unseen Attack Alert" in pred_class:
         return ["background-color: #fee2e2; color: #991b1b; font-weight: 600;"] * len(row)
     if "Known Attack" in pred_class:
         return ["background-color: #ffedd5; color: #9a3412;"] * len(row)
@@ -197,7 +196,7 @@ def highlight_zeroday_rows(row: pd.Series):
 # 3. GIAO DIỆN CHÍNH (MAIN UI LAYOUT)
 # =============================================================================
 def main():
-    st.title("🛡️ NIDS Dashboard: Zero-day Detection via Epistemic Uncertainty")
+    st.title("NIDS Dashboard: Unseen Attack Detection via Epistemic Uncertainty")
     st.caption(
         "Hệ thống Phát hiện Xâm nhập Mạng dựa trên Đồ thị **Inductive Edge-Aware GATv2** "
         "kết hợp **Định lượng Bất định Nhận thức 3 Nhánh (Three-way Monte Carlo Dropout UQ)**"
@@ -207,7 +206,7 @@ def main():
     # SIDEBAR: CẤU HÌNH KẾT NỐI API & UPLOAD MICRO-BATCH
     # -------------------------------------------------------------------------
     with st.sidebar:
-        st.header("⚙️ Cấu hình & Đầu vào")
+        st.header("Cấu hình & Đầu vào")
         api_base_url = st.text_input(
             "FastAPI Backend URL",
             value="http://localhost:8000",
@@ -219,14 +218,14 @@ def main():
             health_resp = requests.get(f"{api_base_url.rstrip('/')}/health", timeout=3)
             if health_resp.status_code == 200:
                 backend_online = True
-                st.success("🟢 FastAPI Backend: Đang hoạt động")
+                st.success("FastAPI Backend: Đang hoạt động")
             else:
-                st.warning(f"🟡 FastAPI phản hồi mã: {health_resp.status_code}")
+                st.warning(f"FastAPI phản hồi mã: {health_resp.status_code}")
         except Exception:
-            st.error("🔴 Chưa kết nối được FastAPI (`http://localhost:8000`)")
+            st.error("Chưa kết nối được FastAPI (`http://localhost:8000`)")
 
         st.divider()
-        st.subheader("📂 Tải lên Micro-batch NetFlow")
+        st.subheader("Tải lên Micro-batch NetFlow")
         uploaded_file = st.file_uploader(
             "Chọn file dữ liệu luồng mạng (.csv hoặc .parquet)",
             type=["csv", "parquet"],
@@ -236,7 +235,7 @@ def main():
         max_rows = st.slider("Số luồng tối đa phân tích (Max Rows)", min_value=20, max_value=2000, value=250, step=10)
         mc_samples = st.slider("Số lần lấy mẫu MC Dropout (T)", min_value=5, max_value=50, value=20, step=5)
         std_threshold = st.slider(
-            "Ngưỡng Bất định Zero-day (Std Threshold)",
+            "Ngưỡng Bất định Unseen Attack (Std Threshold)",
             min_value=0.05,
             max_value=0.35,
             value=0.15,
@@ -248,7 +247,7 @@ def main():
     # -------------------------------------------------------------------------
     if uploaded_file is None:
         st.info(
-            "👈 Hãy tải lên một file `.csv` hoặc `.parquet` ở thanh Sidebar bên trái "
+            "Hãy tải lên một file `.csv` hoặc `.parquet` ở thanh Sidebar bên trái "
             "(ví dụ: `data/processed/edges_test_unseen.parquet` hoặc `data/processed/edges_test_seen.parquet`) "
             "để bắt đầu phân tích!"
         )
@@ -290,7 +289,7 @@ def main():
     # =========================================================================
     # HÀNG 1: KPI METRICS (TỔNG SỐ LUỒNG, LATENCY, BENIGN, KNOWN ATTACK, ZERO-DAY)
     # =========================================================================
-    st.subheader("📊 Hàng 1: Chỉ số Giám sát Thời gian thực (KPI Metrics)")
+    st.subheader("Hàng 1: Chỉ số Giám sát Thời gian thực (KPI Metrics)")
     col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
@@ -320,7 +319,7 @@ def main():
         st.markdown(
             f"""
             <div class="kpi-card bg-benign">
-                <div class="kpi-title">🟢 Benign (Trusted)</div>
+                <div class="kpi-title">Benign (Trusted)</div>
                 <div class="kpi-value">{n_benign:,}</div>
                 <div class="kpi-sub">{pct_b:.1f}% tổng lưu lượng</div>
             </div>
@@ -332,7 +331,7 @@ def main():
         st.markdown(
             f"""
             <div class="kpi-card bg-attack">
-                <div class="kpi-title">🟠 Known Attack</div>
+                <div class="kpi-title">Known Attack</div>
                 <div class="kpi-value">{n_known:,}</div>
                 <div class="kpi-sub">{pct_k:.1f}% (Mean >= 0.5, Std <= {used_std_threshold})</div>
             </div>
@@ -344,7 +343,7 @@ def main():
         st.markdown(
             f"""
             <div class="kpi-card bg-zeroday">
-                <div class="kpi-title">🔴 Zero-day Alert</div>
+                <div class="kpi-title">Unseen Attack Alert</div>
                 <div class="kpi-value">{n_zeroday:,}</div>
                 <div class="kpi-sub">{pct_z:.1f}% (Epistemic Std > {used_std_threshold})</div>
             </div>
@@ -360,14 +359,14 @@ def main():
     # =========================================================================
     # HÀNG 2: BIỂU ĐỒ PHÂN TÁN (SCATTER PLOT: MEAN PROB vs EPISTEMIC STD)
     # =========================================================================
-    st.subheader("🎯 Hàng 2: Không gian Phân bố Bất định Nhận thức (Mean Prob vs. Epistemic Std)")
+    st.subheader("Hàng 2: Không gian Phân bố Bất định Nhận thức (Mean Prob vs. Epistemic Std)")
     fig = render_uncertainty_scatter_plot(df_pred, used_std_threshold)
     st.pyplot(fig, use_container_width=True)
 
     # =========================================================================
     # HÀNG 3: BẢNG CHI TIẾT DỰ ĐOÁN (DATA TABLE - BÔI ĐỎ ZERO-DAY ALERT)
     # =========================================================================
-    st.subheader("📋 Hàng 3: Bảng Chi tiết Kết quả Dự đoán từng Luồng (Flow-level Predictions)")
+    st.subheader("Hàng 3: Bảng Chi tiết Kết quả Dự đoán từng Luồng (Flow-level Predictions)")
 
     filter_col1, _ = st.columns([2, 3])
     with filter_col1:
