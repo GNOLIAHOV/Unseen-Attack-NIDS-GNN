@@ -1,0 +1,119 @@
+{
+  "task": "15.1 Open-Set Recognition (OSR) on Host-Flow NetFlow Graph",
+  "total_evaluated_flows": 459458,
+  "known_in_distribution_flows": 200000,
+  "unknown_open_set_flows": 259458,
+  "unknown_attack_families": [
+    "Bot",
+    "Infilteration"
+  ],
+  "eval_time_sec": 37.03,
+  "osr_method_comparison": [
+    {
+      "method": "1. Closed-Set Sigmoid Margin (T=1)",
+      "threshold": 0.5,
+      "auroc_open_set": 0.8227,
+      "aupr_unknown": 0.7918,
+      "oscr_score": 0.8151,
+      "known_class_ccr": 0.9262,
+      "unknown_flagged_as_open_set_rate": 0.1615,
+      "unknown_total_threat_recall": 0.8776,
+      "mean_score_known": 0.0838,
+      "mean_score_unknown": 0.2243
+    },
+    {
+      "method": "2. Dual-Pathway Energy Discrepancy (T=1)",
+      "threshold": 0.15,
+      "auroc_open_set": 0.739,
+      "aupr_unknown": 0.7351,
+      "oscr_score": 0.7307,
+      "known_class_ccr": 0.913,
+      "unknown_flagged_as_open_set_rate": 0.1493,
+      "unknown_total_threat_recall": 0.8665,
+      "mean_score_known": 0.0275,
+      "mean_score_unknown": 0.0603
+    },
+    {
+      "method": "3. Three-way Epistemic MC Dropout (T=20)",
+      "threshold": 0.15,
+      "auroc_open_set": 0.8531,
+      "aupr_unknown": 0.8045,
+      "oscr_score": 0.8417,
+      "known_class_ccr": 0.8595,
+      "unknown_flagged_as_open_set_rate": 0.4779,
+      "unknown_total_threat_recall": 0.918,
+      "mean_score_known": 0.0458,
+      "mean_score_unknown": 0.1441
+    },
+    {
+      "method": "4. Hybrid Epistemic + Dual-Pathway OSR (T=20 - Proposed)",
+      "threshold": 0.15,
+      "auroc_open_set": 0.8531,
+      "aupr_unknown": 0.8044,
+      "oscr_score": 0.8417,
+      "known_class_ccr": 0.8594,
+      "unknown_flagged_as_open_set_rate": 0.4779,
+      "unknown_total_threat_recall": 0.9181,
+      "mean_score_known": 0.0458,
+      "mean_score_unknown": 0.1441
+    }
+  ],
+  "proposed_hybrid_osr_summary": {
+    "threshold": 0.15,
+    "auroc_open_set": 0.8531,
+    "aupr_unknown": 0.8044,
+    "oscr_score": 0.8417,
+    "macro_f1_3class": 0.6705,
+    "overall_threat_precision": 0.9702,
+    "overall_threat_recall": 0.9435,
+    "overall_threat_f1": 0.9566,
+    "confusion_matrix_3x3": {
+      "labels": [
+        "0: Known Benign",
+        "1: Known Attack",
+        "2: Unknown/Unseen Attack (Bot & Infilteration)"
+      ],
+      "matrix": [
+        [
+          55651,
+          859,
+          10527
+        ],
+        [
+          924,
+          116236,
+          15803
+        ],
+        [
+          21262,
+          114204,
+          123992
+        ]
+      ]
+    },
+    "unknown_family_breakdown": {
+      "Bot": {
+        "total_flows": 143097,
+        "predicted_class_0_benign_missed": 4698,
+        "predicted_class_1_known_attack": 96120,
+        "predicted_class_2_open_set_unknown": 42279,
+        "open_set_unknown_rate": 0.2955,
+        "total_intercept_recall": 0.9672,
+        "mean_epistemic_std": 0.1142,
+        "mean_pathway_discrepancy": 0.033,
+        "mean_hybrid_osr_score": 0.1142
+      },
+      "Infilteration": {
+        "total_flows": 116361,
+        "predicted_class_0_benign_missed": 16564,
+        "predicted_class_1_known_attack": 18084,
+        "predicted_class_2_open_set_unknown": 81713,
+        "open_set_unknown_rate": 0.7022,
+        "total_intercept_recall": 0.8576,
+        "mean_epistemic_std": 0.1808,
+        "mean_pathway_discrepancy": 0.2283,
+        "mean_hybrid_osr_score": 0.1808
+      }
+    }
+  }
+}

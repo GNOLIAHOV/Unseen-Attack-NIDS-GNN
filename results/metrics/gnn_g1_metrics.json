@@ -1,63 +1,63 @@
 [
   {
-    "rows": 1000000,
-    "TP": 646001,
-    "FP": 13997,
-    "TN": 318481,
-    "FN": 21521,
-    "precision": 0.9787923599768484,
-    "recall": 0.9677598640943669,
-    "f1": 0.9732448475352538,
-    "pr_auc": 0.9969406324766684,
-    "mean_pred_prob": 0.6609247922897339,
-    "eval_time_sec": 2.78,
+    "rows": 200000,
+    "TP": 129178,
+    "FP": 2301,
+    "TN": 64231,
+    "FN": 4290,
+    "precision": 0.9824991063211616,
+    "recall": 0.9678574639613989,
+    "f1": 0.9751233265521029,
+    "pr_auc": 0.9972868223457059,
+    "mean_pred_prob": 0.6530578136444092,
+    "eval_time_sec": 0.69,
     "split": "Validation",
-    "total_file_rows": 11372074
+    "total_file_rows": 11341070
   },
   {
-    "rows": 1000000,
-    "TP": 646843,
-    "FP": 13702,
-    "TN": 317671,
-    "FN": 21784,
-    "precision": 0.9792565230226555,
-    "recall": 0.9674198020720073,
-    "f1": 0.9733021760915819,
-    "pr_auc": 0.9944936169087011,
-    "mean_pred_prob": 0.6608197093009949,
-    "eval_time_sec": 2.74,
+    "rows": 200000,
+    "TP": 128496,
+    "FP": 2275,
+    "TN": 64762,
+    "FN": 4467,
+    "precision": 0.9826031765452585,
+    "recall": 0.9664041876311456,
+    "f1": 0.9744363639121236,
+    "pr_auc": 0.9973439782613647,
+    "mean_pred_prob": 0.6514320969581604,
+    "eval_time_sec": 0.73,
     "split": "Test_seen",
-    "total_file_rows": 11372076
+    "total_file_rows": 11341543
   },
   {
-    "rows": 53861,
-    "TP": 3145,
+    "rows": 259458,
+    "TP": 56953,
     "FP": 0,
     "TN": 0,
-    "FN": 50716,
+    "FN": 202505,
     "precision": 1.0,
-    "recall": 0.05839104361226119,
-    "f1": 0.11033926253376837,
-    "pr_auc": 1.0,
-    "mean_pred_prob": 0.10164941102266312,
-    "eval_time_sec": 0.2,
-    "split": "Test_unseen (Zero-day)",
-    "total_file_rows": 53861,
-    "combined_with_benign_precision": 0.5899456012005252,
-    "combined_with_benign_f1": 0.10626436004865522,
-    "combined_with_benign_pr_auc": 0.6523432471171698,
-    "zero_day_breakdown": {
-      "Exploits": {
-        "count": 31551,
-        "detected_tp": 1530,
-        "recall": 0.04849291623086432,
-        "mean_prob": 0.08399863541126251
+    "recall": 0.2195075888968542,
+    "f1": 0.35999380552509236,
+    "pr_auc": 1.0000000000000002,
+    "mean_pred_prob": 0.29120805859565735,
+    "eval_time_sec": 0.56,
+    "split": "Test_unseen (Unseen Attack)",
+    "total_file_rows": 259458,
+    "combined_with_benign_precision": 0.8658497651154659,
+    "combined_with_benign_f1": 0.3502267591126416,
+    "combined_with_benign_pr_auc": 0.7693308119607353,
+    "unseen_attack_breakdown": {
+      "Bot": {
+        "count": 143097,
+        "detected_tp": 45513,
+        "recall": 0.3180569823266735,
+        "mean_prob": 0.3821701109409332
       },
-      "Fuzzers": {
-        "count": 22310,
-        "detected_tp": 1615,
-        "recall": 0.07238906320035858,
-        "mean_prob": 0.12661130726337433
+      "Infilteration": {
+        "count": 116361,
+        "detected_tp": 11440,
+        "recall": 0.09831472744304363,
+        "mean_prob": 0.17934584617614746
       }
     }
   }

@@ -11,9 +11,13 @@ if hasattr(sys.stdout, "reconfigure"):
 
 def find_or_extract_csv(base_dir: str = "data") -> str:
     """Scan for NF-UQ-NIDS-v2.csv, extracting it from NF-UQ-NIDS-v2.zip if needed."""
-    target_csv = os.path.join(base_dir, "NF-UQ-NIDS-v2.csv")
-    if os.path.exists(target_csv):
-        return target_csv
+    for candidate in [
+        os.path.join(base_dir, "raw", "NF-UQ-NIDS-v2.csv"),
+        os.path.join(base_dir, "NF-UQ-NIDS-v2.csv"),
+    ]:
+        if os.path.exists(candidate):
+            return candidate
+    target_csv = os.path.join(base_dir, "raw", "NF-UQ-NIDS-v2.csv")
 
     # Search recursively in current workspace for any existing NF-UQ-NIDS-v2.csv
     for root, _, files in os.walk("."):
@@ -21,9 +25,13 @@ def find_or_extract_csv(base_dir: str = "data") -> str:
             if f.lower() == "nf-uq-nids-v2.csv":
                 return os.path.join(root, f)
 
-    # Check if the zip archive exists and extract the CSV
-    zip_path = os.path.join(base_dir, "NF-UQ-NIDS-v2.zip")
-    if os.path.exists(zip_path):
+    # Check if the zip archive exists in data/raw/ or data/ and extract the CSV
+    zip_candidates = [
+        os.path.join(base_dir, "raw", "NF-UQ-NIDS-v2.zip"),
+        os.path.join(base_dir, "NF-UQ-NIDS-v2.zip"),
+    ]
+    zip_path = next((zp for zp in zip_candidates if os.path.exists(zp)), None)
+    if zip_path is not None:
         print(f"[*] Tìm thấy file nén '{zip_path}'. Đang kiểm tra nội dung...")
         with zipfile.ZipFile(zip_path, "r") as z:
             csv_members = [
@@ -37,14 +45,14 @@ def find_or_extract_csv(base_dir: str = "data") -> str:
             print(
                 f"[*] Đang giải nén '{member}' ra '{target_csv}' (~13.7 GB, vui lòng đợi)..."
             )
-            os.makedirs(base_dir, exist_ok=True)
+            os.makedirs(os.path.dirname(target_csv), exist_ok=True)
             with z.open(member) as src, open(target_csv, "wb") as dst:
                 shutil.copyfileobj(src, dst, length=16 * 1024 * 1024)
             print(f"[+] Giải nén hoàn tất: {target_csv}\n")
             return target_csv
 
     raise FileNotFoundError(
-        "Không tìm thấy file NF-UQ-NIDS-v2.csv hoặc data/NF-UQ-NIDS-v2.zip"
+        "Không tìm thấy file NF-UQ-NIDS-v2.csv hoặc data/raw/NF-UQ-NIDS-v2.zip"
     )
 
 

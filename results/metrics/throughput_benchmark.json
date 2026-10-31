@@ -11,28 +11,28 @@
     "mc_passes_T": 1,
     "measured_batches": 50,
     "total_flows_processed": 204800,
-    "total_time_sec": 1.2196,
-    "avg_batch_latency_ms": 24.25,
-    "p95_batch_latency_ms": 27.05,
-    "per_flow_latency_us": 5.95,
-    "throughput_flows_per_sec": 167927.5,
+    "total_time_sec": 1.2145,
+    "avg_batch_latency_ms": 24.17,
+    "p95_batch_latency_ms": 27.26,
+    "per_flow_latency_us": 5.93,
+    "throughput_flows_per_sec": 168625.47,
     "peak_vram_mb": 0.0,
-    "peak_ram_mb": 496.73
+    "peak_ram_mb": 535.86
   },
   "scenario_2_mc_dropout_T20": {
     "mc_passes_T": 20,
     "measured_batches": 50,
     "total_flows_processed": 204800,
-    "total_time_sec": 26.1368,
-    "avg_batch_latency_ms": 522.61,
-    "p95_batch_latency_ms": 572.91,
-    "per_flow_latency_us": 127.62,
-    "throughput_flows_per_sec": 7835.71,
+    "total_time_sec": 28.9379,
+    "avg_batch_latency_ms": 578.65,
+    "p95_batch_latency_ms": 712.5,
+    "per_flow_latency_us": 141.3,
+    "throughput_flows_per_sec": 7077.21,
     "peak_vram_mb": 0.0,
-    "peak_ram_mb": 500.67
+    "peak_ram_mb": 540.41
   },
   "tradeoff_analysis": {
-    "throughput_slowdown_factor": 21.43,
-    "latency_increase_factor": 21.55
+    "throughput_slowdown_factor": 23.83,
+    "latency_increase_factor": 23.94
   }
 }

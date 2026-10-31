@@ -111,9 +111,9 @@ def fit_preprocessor_on_train(train_csv: str, artifacts_path: str) -> tuple[dict
     """
     CHỐNG RÒ RỈ DỮ LIỆU (Data Leakage Prevention):
     Chỉ tính toán bộ từ vựng (vocab) cho các cột Categorical và (mean, std) cho các cột Numerical
-    DỰA TRÊN DUY NHẤT tập train.csv.
+    DỰA TRÊN DUY NHẤT tập data/interim/train.csv.
     """
-    print("[2/4] Đang tính toán tham số tiền xử lý CHỈ TRÊN TẬP TRAIN (data/train.csv)...")
+    print("[2/4] Đang tính toán tham số tiền xử lý CHỈ TRÊN TẬP TRAIN (data/interim/train.csv)...")
     t0 = time.time()
     lf_train = pl.scan_csv(train_csv)
 
@@ -258,19 +258,23 @@ def main():
     start_time = time.time()
     data_dir = "data"
 
+    interim_dir = os.path.join(data_dir, "interim")
+    proc_dir = os.path.join(data_dir, "processed")
+    os.makedirs(proc_dir, exist_ok=True)
+
     splits = [
-        ("Train", os.path.join(data_dir, "train.csv"), os.path.join(data_dir, "edges_train.parquet")),
-        ("Val", os.path.join(data_dir, "val.csv"), os.path.join(data_dir, "edges_val.parquet")),
-        ("Test Seen", os.path.join(data_dir, "test_seen.csv"), os.path.join(data_dir, "edges_test_seen.parquet")),
-        ("Test Unseen", os.path.join(data_dir, "test_unseen.csv"), os.path.join(data_dir, "edges_test_unseen.parquet")),
+        ("Train", os.path.join(interim_dir, "train.csv"), os.path.join(proc_dir, "edges_train.parquet")),
+        ("Val", os.path.join(interim_dir, "val.csv"), os.path.join(proc_dir, "edges_val.parquet")),
+        ("Test Seen", os.path.join(interim_dir, "test_seen.csv"), os.path.join(proc_dir, "edges_test_seen.parquet")),
+        ("Test Unseen", os.path.join(interim_dir, "test_unseen.csv"), os.path.join(proc_dir, "edges_test_unseen.parquet")),
     ]
 
     for _, in_csv, _ in splits:
         if not os.path.exists(in_csv):
             raise FileNotFoundError(f"Không tìm thấy file đầu vào: {in_csv}")
 
-    ip_map_parquet = os.path.join(data_dir, "ip_node_map.parquet")
-    preproc_json = os.path.join(data_dir, "preprocessor_params.json")
+    ip_map_parquet = os.path.join(proc_dir, "ip_node_map.parquet")
+    preproc_json = os.path.join(proc_dir, "preprocessor_params.json")
 
     # Bước 1: Tạo từ điển Node ID toàn cục cho mọi IP Nguồn & Đích
     ip_df = build_global_ip_mapping([s[1] for s in splits], ip_map_parquet)

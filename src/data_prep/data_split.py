@@ -13,19 +13,27 @@ if hasattr(sys.stdout, "reconfigure"):
 
 def ensure_raw_csv(base_dir: str = "data") -> str:
     """Kiểm tra file NF-UQ-NIDS-v2.csv, nếu chưa giải nén thì tự động giải nén từ file zip."""
-    target_csv = os.path.join(base_dir, "NF-UQ-NIDS-v2.csv")
-    if os.path.exists(target_csv):
-        return target_csv
+    for candidate in [
+        os.path.join(base_dir, "raw", "NF-UQ-NIDS-v2.csv"),
+        os.path.join(base_dir, "NF-UQ-NIDS-v2.csv"),
+    ]:
+        if os.path.exists(candidate):
+            return candidate
+    target_csv = os.path.join(base_dir, "raw", "NF-UQ-NIDS-v2.csv")
 
     for root, _, files in os.walk("."):
         for f in files:
             if f.lower() == "nf-uq-nids-v2.csv":
                 return os.path.join(root, f)
 
-    zip_path = os.path.join(base_dir, "NF-UQ-NIDS-v2.zip")
-    if os.path.exists(zip_path):
+    zip_candidates = [
+        os.path.join(base_dir, "raw", "NF-UQ-NIDS-v2.zip"),
+        os.path.join(base_dir, "NF-UQ-NIDS-v2.zip"),
+    ]
+    zip_path = next((zp for zp in zip_candidates if os.path.exists(zp)), None)
+    if zip_path is not None:
         print(f"[*] Tìm thấy '{zip_path}'. Đang giải nén NF-UQ-NIDS-v2.csv (~13.7 GB)...")
-        os.makedirs(base_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(target_csv), exist_ok=True)
         with zipfile.ZipFile(zip_path, "r") as z:
             csv_members = [m for m in z.namelist() if m.endswith("NF-UQ-NIDS-v2.csv")]
             if not csv_members:
@@ -35,7 +43,7 @@ def ensure_raw_csv(base_dir: str = "data") -> str:
         print(f"[+] Đã giải nén xong: {target_csv}\n")
         return target_csv
 
-    raise FileNotFoundError("Không tìm thấy NF-UQ-NIDS-v2.csv hoặc data/NF-UQ-NIDS-v2.zip!")
+    raise FileNotFoundError("Không tìm thấy NF-UQ-NIDS-v2.csv hoặc data/raw/NF-UQ-NIDS-v2.zip!")
 
 
 def count_rows_and_cols(csv_path: str) -> tuple[int, int]:
@@ -56,10 +64,11 @@ def main():
     buckets_dir = os.path.join(data_dir, "_tmp_buckets")
     seen_buckets_dir = os.path.join(data_dir, "_tmp_seen_buckets")
 
-    test_unseen_csv = os.path.join(data_dir, "test_unseen.csv")
-    train_csv = os.path.join(data_dir, "train.csv")
-    val_csv = os.path.join(data_dir, "val.csv")
-    test_seen_csv = os.path.join(data_dir, "test_seen.csv")
+    test_unseen_csv = os.path.join(data_dir, "interim", "test_unseen.csv")
+    train_csv = os.path.join(data_dir, "interim", "train.csv")
+    val_csv = os.path.join(data_dir, "interim", "val.csv")
+    test_seen_csv = os.path.join(data_dir, "interim", "test_seen.csv")
+    os.makedirs(os.path.join(data_dir, "interim"), exist_ok=True)
 
     # Dọn dẹp thư mục tạm nếu còn sót từ lần chạy trước
     for d in (buckets_dir, seen_buckets_dir):
@@ -69,7 +78,7 @@ def main():
     os.makedirs(seen_buckets_dir, exist_ok=True)
 
     num_buckets = 64
-    unseen_attacks = ["Exploits", "Fuzzers"]
+    unseen_attacks = ["Bot", "Infilteration"]
 
     # =========================================================================
     # BƯỚC 1: Chia file CSV gốc (~13.7GB) thành 64 hash buckets theo struct hash
@@ -95,10 +104,10 @@ def main():
     # =========================================================================
     # BƯỚC 2: Xử lý từng bucket:
     #         - Loại bỏ hoàn toàn các dòng trùng lặp (unique trên toàn bộ cột)
-    #         - Tách tập Unseen (Exploits, Fuzzers) -> ghi nối vào data/test_unseen.csv
+    #         - Tách tập Unseen (Bot, Infilteration) -> ghi nối vào data/interim/test_unseen.csv
     #         - Phần Seen còn lại: Xáo trộn ngẫu nhiên (shuffle với seed=42)
     # =========================================================================
-    print("[2/4] Đang lọc trùng lặp (drop duplicates), tách Unseen (Exploits, Fuzzers) và xáo trộn Seen (seed=42)...")
+    print("[2/4] Đang lọc trùng lặp (drop duplicates), tách Unseen (Bot, Infilteration) và xáo trộn Seen (seed=42)...")
     t0 = time.time()
 
     total_dedup_rows = 0
@@ -123,7 +132,7 @@ def main():
 
             total_dedup_rows += df_bucket.height
 
-            # 1) Lọc Unseen: Exploits hoặc Fuzzers
+            # 1) Lọc Unseen: Bot hoặc Infilteration
             df_unseen = df_bucket.filter(pl.col("Attack").is_in(unseen_attacks))
             if df_unseen.height > 0:
                 df_unseen.write_csv(f_unseen, include_header=not unseen_header_written)
@@ -131,7 +140,7 @@ def main():
                 unseen_rows += df_unseen.height
             del df_unseen
 
-            # 2) Lọc Seen: Không chứa Exploits và Fuzzers, và Shuffle với seed=42
+            # 2) Lọc Seen: Không chứa Bot và Infilteration, và Shuffle với seed=42
             df_seen = (
                 df_bucket.filter(~pl.col("Attack").is_in(unseen_attacks))
                 .sample(fraction=1.0, shuffle=True, seed=42)
@@ -245,12 +254,12 @@ def main():
     sum_outputs = n_train + n_val + n_test_seen + n_test_unseen
 
     print("=" * 72)
-    print("KẾT QUẢ PHÂN CHIA DỮ LIỆU (INDUCTIVE SPLIT - ZERO-DAY SIMULATION)")
+    print("KẾT QUẢ PHÂN CHIA DỮ LIỆU (INDUCTIVE SPLIT - UNSEEN ATTACK SIMULATION)")
     print("=" * 72)
-    print(f"1. data/train.csv       : {n_train:>12,} dòng | Shape: ({n_train}, {c_train})")
-    print(f"2. data/val.csv         : {n_val:>12,} dòng | Shape: ({n_val}, {c_val})")
-    print(f"3. data/test_seen.csv   : {n_test_seen:>12,} dòng | Shape: ({n_test_seen}, {c_test_seen})")
-    print(f"4. data/test_unseen.csv : {n_test_unseen:>12,} dòng | Shape: ({n_test_unseen}, {c_test_unseen})")
+    print(f"1. data/interim/train.csv       : {n_train:>12,} dòng | Shape: ({n_train}, {c_train})")
+    print(f"2. data/interim/val.csv         : {n_val:>12,} dòng | Shape: ({n_val}, {c_val})")
+    print(f"3. data/interim/test_seen.csv   : {n_test_seen:>12,} dòng | Shape: ({n_test_seen}, {c_test_seen})")
+    print(f"4. data/interim/test_unseen.csv : {n_test_unseen:>12,} dòng | Shape: ({n_test_unseen}, {c_test_unseen})")
     print("-" * 72)
     print(f"Tổng số dòng sau lọc trùng (Unique) : {total_dedup_rows:>12,} dòng")
     print(f"Tổng số dòng của 4 file đầu ra      : {sum_outputs:>12,} dòng")

@@ -8,7 +8,6 @@ import polars as pl
 import xgboost as xgb
 from sklearn.metrics import (
     average_precision_score,
-    confusion_matrix,
     f1_score,
     precision_score,
     recall_score,
@@ -136,8 +135,8 @@ def evaluate_split(
         "eval_time_sec": round(time.time() - t0, 2),
     }
 
-    # Nếu tập chỉ có lớp 1 (như Test_unseen chỉ chứa Exploits & Fuzzers),
-    # tính thêm PR-AUC kết hợp với Benign của Test_seen để đánh giá khả năng phân biệt Zero-day vs Benign
+    # Nếu tập chỉ có lớp 1 (như Test_unseen chỉ chứa Bot & Infilteration),
+    # tính thêm PR-AUC kết hợp với Benign của Test_seen để đánh giá khả năng phân biệt Unseen vs Benign
     if n_neg == 0 and benign_reference_path is not None and os.path.exists(benign_reference_path):
         df_benign = (
             pl.scan_parquet(benign_reference_path)
@@ -164,7 +163,7 @@ def evaluate_split(
         res["combined_with_benign_f1"] = float(f1_score(y_comb, pred_comb, zero_division=0))
         res["combined_with_benign_pr_auc"] = float(average_precision_score(y_comb, prob_comb))
 
-        # Chi tiết Recall theo từng loại tấn công Zero-day (Exploits vs Fuzzers)
+        # Chi tiết Recall theo từng loại tấn công Unseen (Bot vs Infilteration)
         attacks = pl.scan_parquet(parquet_path).select("Attack").collect(engine="streaming")["Attack"].to_list()
         attack_arr = np.array(attacks)
         per_attack_recall = {}
@@ -176,7 +175,7 @@ def evaluate_split(
                 "recall": float(y_pred[mask].mean()),
                 "mean_prob": float(y_prob[mask].mean()),
             }
-        res["zero_day_breakdown"] = per_attack_recall
+        res["unseen_attack_breakdown"] = per_attack_recall
 
     del y_true, y_prob, y_pred
     gc.collect()
@@ -185,12 +184,12 @@ def evaluate_split(
 
 def main():
     start_time = time.time()
-    data_dir = "data"
+    proc_dir = os.path.join("data", "processed")
 
-    train_path = os.path.join(data_dir, "edges_train.parquet")
-    val_path = os.path.join(data_dir, "edges_val.parquet")
-    test_seen_path = os.path.join(data_dir, "edges_test_seen.parquet")
-    test_unseen_path = os.path.join(data_dir, "edges_test_unseen.parquet")
+    train_path = os.path.join(proc_dir, "edges_train.parquet")
+    val_path = os.path.join(proc_dir, "edges_val.parquet")
+    test_seen_path = os.path.join(proc_dir, "edges_test_seen.parquet")
+    test_unseen_path = os.path.join(proc_dir, "edges_test_unseen.parquet")
 
     feature_cols = get_feature_cols(train_path)
     print("=" * 80)
@@ -201,15 +200,9 @@ def main():
     print(f"- Biến mục tiêu (y)          : label (0 = Benign, 1 = Attack)\n")
 
     # 1. Đọc dữ liệu Train
-    print("[1/3] Đang nạp dữ liệu huấn luyện từ 'data/edges_train.parquet'...")
+    print("[1/3] Đang nạp dữ liệu huấn luyện từ 'data/processed/edges_train.parquet' (10,000,000 dòng đại diện)...")
     t0 = time.time()
-    try:
-        # Thử nạp toàn bộ tập Train; nếu vượt quá bộ nhớ vật lý khả dụng của máy thì fallback về 15 triệu dòng
-        X_train, y_train = load_xy_polars(train_path, feature_cols, max_rows=None)
-    except MemoryError:
-        gc.collect()
-        print("      [!] Bộ nhớ RAM không đủ chứa toàn bộ 53M dòng. Chuyển sang nạp 15,000,000 dòng Train...")
-        X_train, y_train = load_xy_polars(train_path, feature_cols, max_rows=15_000_000)
+    X_train, y_train = load_xy_polars(train_path, feature_cols, max_rows=10_000_000)
 
     print(
         f"      -> Đã nạp X_train: {X_train.shape} ({X_train.dtype}), "
@@ -233,7 +226,8 @@ def main():
     print(f"      -> Huấn luyện hoàn tất trong {train_time:.1f}s.")
 
     # Lưu model và giải phóng ngay X_train, y_train khỏi RAM
-    model_path = os.path.join(data_dir, "xgboost_baseline_b0.json")
+    os.makedirs(os.path.join("models", "baselines"), exist_ok=True)
+    model_path = os.path.join("models", "baselines", "xgboost_baseline_b0.json")
     model.save_model(model_path)
     print(f"      -> Đã lưu mô hình tại '{model_path}'. Đang giải phóng X_train, y_train khỏi RAM...\n")
     del X_train, y_train
@@ -244,7 +238,7 @@ def main():
     eval_splits = [
         ("Validation", val_path),
         ("Test_seen", test_seen_path),
-        ("Test_unseen (Zero-day)", test_unseen_path),
+        ("Test_unseen (Unseen Attack)", test_unseen_path),
     ]
 
     all_metrics = []
@@ -261,13 +255,14 @@ def main():
         gc.collect()
 
     # Lưu kết quả ra JSON
-    metrics_json_path = os.path.join(data_dir, "baseline_b0_metrics.json")
+    os.makedirs(os.path.join("results", "metrics"), exist_ok=True)
+    metrics_json_path = os.path.join("results", "metrics", "baseline_b0_metrics.json")
     with open(metrics_json_path, "w", encoding="utf-8") as f:
         json.dump(all_metrics, f, indent=2, ensure_ascii=False)
 
     # In bảng tổng hợp kết quả
     print("\n" + "=" * 86)
-    print("KẾT QUẢ ĐÁNH GIẢ BASELINE PHI ĐỒ THỊ (B0 - XGBOOST)")
+    print("KẾT QUẢ ĐÁNH GIÁ BASELINE PHI ĐỒ THỊ (B0 - XGBOOST)")
     print("=" * 86)
     print(
         f"{'Tập dữ liệu':<24} | {'Số dòng':>11} | {'Precision':>10} | {'Recall':>10} | {'F1-score':>10} | {'PR-AUC':>10}"
@@ -281,10 +276,10 @@ def main():
         )
     print("-" * 86)
 
-    # In phân tích sâu cho tập Test_unseen (Zero-day)
+    # In phân tích sâu cho tập Test_unseen (Unseen: Bot & Infilteration)
     unseen_m = all_metrics[-1]
-    print("\n[PHÂN TÍCH CHI TIẾT TẬP TEST_UNSEEN (ZERO-DAY: EXPLOITS & FUZZERS)]")
-    print(f"- Tổng số mẫu Zero-day (label=1)          : {unseen_m['rows']:,} dòng (Benign=0)")
+    print("\n[PHÂN TÍCH CHI TIẾT TẬP TEST_UNSEEN (UNSEEN: BOT & INFILTERATION)]")
+    print(f"- Tổng số mẫu Unseen (label=1)            : {unseen_m['rows']:,} dòng (Benign=0)")
     print(f"- Phát hiện đúng là tấn công (TP)         : {unseen_m['TP']:,} / {unseen_m['rows']:,} dòng (Recall = {unseen_m['recall']*100:.2f}%)")
     print(f"- Bỏ lọt thành bình thường (FN - Missed)  : {unseen_m['FN']:,} / {unseen_m['rows']:,} dòng (Miss Rate = {(1 - unseen_m['recall'])*100:.2f}%)")
     print(f"- Xác suất dự đoán tấn công trung bình    : {unseen_m['mean_pred_prob']:.4f}")
@@ -293,9 +288,9 @@ def main():
             f"- PR-AUC (khi ghép 1:1 với Benign thực tế): {unseen_m['combined_with_benign_pr_auc']:.4f} "
             f"(F1 = {unseen_m['combined_with_benign_f1']:.4f}, Precision = {unseen_m['combined_with_benign_precision']:.4f})"
         )
-    if "zero_day_breakdown" in unseen_m:
-        print("- Chi tiết theo từng loại tấn công Zero-day:")
-        for atk, info in unseen_m["zero_day_breakdown"].items():
+    if "unseen_attack_breakdown" in unseen_m:
+        print("- Chi tiết theo từng họ tấn công Unseen:")
+        for atk, info in unseen_m["unseen_attack_breakdown"].items():
             print(
                 f"   + {atk:<10}: {info['detected_tp']:>6,}/{info['count']:<6,} phát hiện được "
                 f"| Recall = {info['recall']*100:>6.2f}% | Mean Prob = {info['mean_prob']:.4f}"

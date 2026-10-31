@@ -1,27 +1,40 @@
-# Virtual Environment
-env/
-venv/
-.venv/
+# 1. Môi trường ảo Python (Virtual Environment)
+/env/
+/venv/
+/.venv/
 
-# Python cache & bytecode
+# 2. Bộ nhớ đệm Python (Python cache & bytecode)
 __pycache__/
 *.py[cod]
 *$py.class
 *.pyc
 
-# Data directories & heavy data files
-data/
-*.csv
-*.parquet
-*.zip
+# 3. Dữ liệu lớn (Heavy Datasets: ~29 GB tổng cộng - KHÔNG đẩy lên GitHub)
+/data/raw/
+/data/interim/
+/data/processed/edges_*.parquet
+/data/_tmp_buckets/
+/data/_tmp_seen_buckets/
 
-# Trained model weights & checkpoints
-models/
-*.pt
-*.pth
+# Giữ lại các tệp siêu nhẹ (~2.6 MB tổng cộng) trong data/processed/ để chạy Demo ngay khi clone:
+!/data/processed/preprocessor_params.json
+!/data/processed/demo_microbatch.parquet
+!/data/processed/demo_microbatch.csv
+!/data/processed/ip_node_map.parquet
 
-# OS & IDE files
+# 4. Trọng số mô hình nặng (>50 MB)
+# Chỉ loại trừ gcn_g0_model.pt (~72.8 MB do bảng nn.Embedding 284,339 nút),
+# giữ lại gatv2_g1_v2_model.pt (177 KB), gine_g1_model.pt (156 KB) và xgboost_baseline_b0.json (702 KB)
+/models/gnns/gcn_g0_model.pt
+
+# 5. Thư viện Node.js (Frontend node_modules - KHÔNG đẩy lên GitHub)
+node_modules/
+/app/web/node_modules/
+/.hallmark/
+
+# 6. Tệp hệ điều hành & IDE (OS & IDE files)
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+~$*.docx

@@ -7,8 +7,6 @@ import warnings
 import numpy as np
 import polars as pl
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from sklearn.metrics import (
     average_precision_score,
     f1_score,
@@ -17,7 +15,18 @@ from sklearn.metrics import (
 )
 from torch_geometric.data import Data
 from torch_geometric.loader import LinkNeighborLoader
-from torch_geometric.nn import GATv2Conv
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+from src.models.gnn_architectures import (
+    EDGE_ATTR_DIM,
+    HIDDEN_DIM,
+    NODE_INIT_DIM,
+    NON_FEATURE_COLS,
+    NUM_HEADS,
+    NUM_TOTAL_NODES,
+    GNNInductiveGATv2,
+    compute_inductive_node_features,
+)
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -26,121 +35,14 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 
-NUM_TOTAL_NODES = 284_339
-NODE_INIT_DIM = 16
-HIDDEN_DIM = 64
-NUM_HEADS = 2
-EDGE_ATTR_DIM = 41
 EVAL_BATCH_SIZE = 8192
 NUM_NEIGHBORS = [10, 10]
 MC_SAMPLES_T = 20
-UNCERTAINTY_THRESHOLD = 0.15  # Ngưỡng bất định cho độ lệch chuẩn / phương sai chuẩn hóa
-NON_FEATURE_COLS = ["src_node_id", "dst_node_id", "label", "Attack", "Dataset"]
-
-
-class GNNInductiveGATv2(nn.Module):
-    """
-    Kiến trúc G1_v2 (Inductive Edge-Aware GATv2 + LayerNorm) hỗ trợ Monte Carlo (MC) Dropout
-    trong pha suy luận (Inference) để định lượng bất định nhận thức (Epistemic Uncertainty).
-    """
-
-    def __init__(
-        self,
-        node_init_dim: int = NODE_INIT_DIM,
-        hidden_dim: int = HIDDEN_DIM,
-        heads: int = NUM_HEADS,
-        edge_attr_dim: int = EDGE_ATTR_DIM,
-    ):
-        super().__init__()
-        out_per_head = hidden_dim // heads
-
-        self.node_proj = nn.Linear(node_init_dim, hidden_dim)
-        self.edge_norm = nn.LayerNorm(edge_attr_dim)
-
-        self.gat1 = GATv2Conv(
-            in_channels=hidden_dim,
-            out_channels=out_per_head,
-            heads=heads,
-            concat=True,
-            edge_dim=edge_attr_dim,
-            dropout=0.1,
-            add_self_loops=True,
-        )
-        self.norm1 = nn.LayerNorm(hidden_dim)
-
-        self.gat2 = GATv2Conv(
-            in_channels=hidden_dim,
-            out_channels=out_per_head,
-            heads=heads,
-            concat=True,
-            edge_dim=edge_attr_dim,
-            dropout=0.1,
-            add_self_loops=True,
-        )
-        self.norm2 = nn.LayerNorm(hidden_dim)
-
-        # Lớp Dropout trên biểu diễn Node & Edge trước khi đưa vào Classifier phục vụ MC Dropout
-        self.mc_node_drop = nn.Dropout(p=0.15)
-
-        classifier_in_dim = hidden_dim * 2 + edge_attr_dim
-        self.classifier = nn.Sequential(
-            nn.Linear(classifier_in_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Dropout(p=0.15),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.LayerNorm(hidden_dim // 2),
-            nn.GELU(),
-            nn.Linear(hidden_dim // 2, 1),
-        )
-
-    def encode_subgraph(
-        self,
-        x: torch.Tensor,
-        edge_index: torch.Tensor,
-        edge_attr: torch.Tensor,
-        edge_label_index: torch.Tensor,
-        target_edge_attr: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Tiền tính toán biểu diễn chuẩn hóa để tăng tốc 20 lần lấy mẫu MC Dropout."""
-        h = F.gelu(self.node_proj(x))
-        e_sub = self.edge_norm(edge_attr)
-        e_target = self.edge_norm(target_edge_attr)
-
-        rev_edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0)
-        bi_edge_index = torch.cat([edge_index, rev_edge_index], dim=1)
-        bi_edge_attr = torch.cat([e_sub, e_sub], dim=0)
-        return h, bi_edge_index, bi_edge_attr, edge_label_index, e_target
-
-    def forward_single_mc(
-        self,
-        h: torch.Tensor,
-        bi_edge_index: torch.Tensor,
-        bi_edge_attr: torch.Tensor,
-        edge_label_index: torch.Tensor,
-        e_target: torch.Tensor,
-    ) -> torch.Tensor:
-        """Một lượt truyền thuận (1 stochastic forward pass) với Dropout đang bật."""
-        h1 = self.gat1(h, bi_edge_index, edge_attr=bi_edge_attr)
-        h1 = F.gelu(self.norm1(h1))
-        h1 = self.mc_node_drop(h1)
-
-        h2 = self.gat2(h1, bi_edge_index, edge_attr=bi_edge_attr)
-        h2 = F.gelu(self.norm2(h2 + h1))
-        h2 = self.mc_node_drop(h2)
-
-        src_idx, dst_idx = edge_label_index[0], edge_label_index[1]
-        node_src = h2[src_idx]
-        node_dst = h2[dst_idx]
-
-        edge_repr = torch.cat([node_src, node_dst, e_target], dim=-1)
-        logits = self.classifier(edge_repr).squeeze(-1)
-        return torch.sigmoid(logits)
+UNCERTAINTY_THRESHOLD = 0.15
 
 
 def load_graph_split(
     parquet_path: str,
-    static_node_x: torch.Tensor,
     max_edges: int | None = None,
 ) -> tuple[Data, int]:
     """Đọc file Parquet từ data/processed/ và tạo đối tượng PyG Data."""
@@ -173,8 +75,9 @@ def load_graph_split(
     del df_feat
     gc.collect()
 
+    node_x = compute_inductive_node_features(edge_index, num_nodes=NUM_TOTAL_NODES)
     data = Data(
-        x=static_node_x,
+        x=node_x,
         edge_index=edge_index,
         edge_attr=edge_attr,
         y=y,
@@ -193,11 +96,9 @@ def evaluate_mc_dropout(
 ) -> dict:
     """
     Thực hiện suy luận Monte Carlo Dropout với T=20 lần forward pass cho mỗi batch:
-    - Bật `model.train()` để kích hoạt toàn bộ Dropout (trong GATv2Conv và MLP Classifier)
-      nhưng đặt trong ngữ cảnh `@torch.no_grad()` để không tính/cập nhật gradient.
-    - Tính xác suất dự đoán trước UQ (Deterministic pass) và sau UQ (Mean Probability & Variance qua T=20 lần).
-    - Lọc báo động giả (False Alarm Filtering): Nếu Mean Prob > 0.5 nhưng độ bất định (Variance chuẩn hóa
-      Var / 0.25 hoặc Variance gốc / Std) vượt ngưỡng `uncertainty_threshold` thì lật nhãn về 0 (Benign).
+    - Bật `model.train()` trong `@torch.no_grad()` để kích hoạt Dropout và lấy mẫu 2 nhánh.
+    - Lọc báo động giả (2-Branch Filtering): Nếu Mean Prob > 0.5 nhưng độ bất định > ngưỡng
+      thì lật nhãn về 0 (Benign) — minh họa bài toán đánh đổi (Filtering Paradox) trên Unseen Attack.
     """
     t0 = time.time()
 
@@ -222,23 +123,16 @@ def evaluate_mc_dropout(
         )
         det_prob = model.forward_single_mc(h, bi_ei, bi_ea, eli, e_target)
 
-        # 2) Dự đoán với MC Dropout (Bật model.train() để kích hoạt Dropout trong T=20 lần forward)
+        # 2) Dự đoán với MC Dropout (Bật model.train() trong T=20 lần forward)
         model.train()
         mc_preds = []
         for _ in range(T):
             prob_t = model.forward_single_mc(h, bi_ei, bi_ea, eli, e_target)
             mc_preds.append(prob_t)
 
-        # Kích thước [T, batch_size]
         mc_stack = torch.stack(mc_preds, dim=0)
         mean_prob = mc_stack.mean(dim=0)
-        # Phương sai mẫu (Epistemic Variance) qua T=20 lần dự đoán
         var_prob = mc_stack.var(dim=0, unbiased=False)
-        # Lưu ý toán học: Vì xác suất p nằm trong [0, 1], phương sai tối đa theo bất đẳng thức Popoviciu
-        # là 0.25 (và với Dropout p=0.15, độ lệch chuẩn std = sqrt(var) nằm trên thang [0, 0.5]).
-        # Để ngưỡng 0.15 hoạt động hiệu quả đồng thời với cả định nghĩa Variance chuẩn hóa / Std,
-        # ta tính thêm đại lượng Epistemic Uncertainty đã chuẩn hóa về thang [0, 1] (std = sqrt(var))
-        # kết hợp phương sai tương đối.
         norm_uncertainty = torch.sqrt(var_prob + 1e-8)
 
         det_probs_list.append(det_prob.cpu().numpy().astype(np.float32))
@@ -256,7 +150,6 @@ def evaluate_mc_dropout(
     del det_probs_list, mc_mean_probs_list, mc_vars_list, mc_norm_vars_list, labels_list
     gc.collect()
 
-    # --- A. Chỉ số TRƯỚC UQ (Deterministic Inference: p >= 0.5) ---
     pred_before = (det_probs >= 0.5).astype(np.int8)
     before_metrics = {
         "precision": float(precision_score(y_true, pred_before, zero_division=0)),
@@ -269,10 +162,6 @@ def evaluate_mc_dropout(
         "FN": int(((y_true == 1) & (pred_before == 0)).sum()),
     }
 
-    # --- B. Chỉ số SAU UQ (MC Dropout T=20 + Lọc báo động giả theo ngưỡng bất định) ---
-    # Điều kiện lọc: Dự đoán ban đầu có Mean > 0.5 nhưng độ bất định (Variance / Epistemic Spread) > Threshold
-    # -> Lật nhãn dự đoán về 0 (Benign).
-    # Kiểm tra đồng thời nếu dùng raw variance > threshold hoặc epistemic spread (sqrt(var)) > threshold
     high_uncertainty_mask = (mc_vars > uncertainty_threshold) | (mc_uncert > uncertainty_threshold)
     pred_after = ((mc_mean_probs > 0.5) & (~high_uncertainty_mask)).astype(np.int8)
 
@@ -280,7 +169,6 @@ def evaluate_mc_dropout(
     flipped_fp_removed = int(((y_true == 0) & (mc_mean_probs > 0.5) & high_uncertainty_mask).sum())
     flipped_tp_lost = int(((y_true == 1) & (mc_mean_probs > 0.5) & high_uncertainty_mask).sum())
 
-    # Xác suất hiệu chỉnh bởi độ bất định (Uncertainty-penalized score) dùng cho PR-AUC sau UQ
     penalized_probs = mc_mean_probs * (1.0 - np.clip(mc_uncert, 0.0, 1.0))
 
     after_metrics = {
@@ -333,7 +221,6 @@ def main():
     print(f"- Ngưỡng lọc bất định        : {UNCERTAINTY_THRESHOLD} (Mean > 0.5 & Uncertainty > {UNCERTAINTY_THRESHOLD} -> Lật về 0)")
     print(f"- Thiết bị thực thi          : {device}\n")
 
-    # 1. Load mô hình GATv2 (G1_v2)
     print("[1/3] Đang nạp trọng số mô hình GATv2 từ 'models/gnns/gatv2_g1_v2_model.pt'...")
     checkpoint = torch.load(model_path, map_location=device, weights_only=True)
     model = GNNInductiveGATv2(
@@ -345,16 +232,10 @@ def main():
     model.load_state_dict(checkpoint["model_state_dict"])
     print("      -> Nạp mô hình thành công!\n")
 
-    static_node_x = torch.ones((NUM_TOTAL_NODES, NODE_INIT_DIM), dtype=torch.float32)
-
-    # Để chạy 20 forward passes của GATv2 trên CPU trong thời gian hợp lý (~40-60s) và tránh tràn bộ nhớ,
-    # đánh giá trên 200,000 cạnh đại diện của Test_seen (đã được shuffle ngẫu nhiên với seed=42)
-    # và TOÀN BỘ 53,861 cạnh của Test_unseen (Zero-day).
     test_seen_eval_edges = 200_000
 
-    # 2. Đánh giá MC Dropout trên tập Test_seen
     print(f"[2/3] Đang chạy MC Dropout (T={MC_SAMPLES_T}) trên tập Test_seen ('{test_seen_path}')...")
-    ts_data, total_ts = load_graph_split(test_seen_path, static_node_x, max_edges=test_seen_eval_edges)
+    ts_data, total_ts = load_graph_split(test_seen_path, max_edges=test_seen_eval_edges)
     ts_loader = LinkNeighborLoader(
         data=ts_data,
         num_neighbors=NUM_NEIGHBORS,
@@ -377,9 +258,8 @@ def main():
     gc.collect()
     print(f"      -> Hoàn tất Test_seen ({ts_res['rows']:,} cạnh) trong {ts_res['eval_time_sec']}s.\n")
 
-    # 3. Đánh giá MC Dropout trên tập Test_unseen (Zero-day)
     print(f"[3/3] Đang chạy MC Dropout (T={MC_SAMPLES_T}) trên TOÀN BỘ tập Test_unseen ('{test_unseen_path}')...")
-    tu_data, total_tu = load_graph_split(test_unseen_path, static_node_x, max_edges=None)
+    tu_data, total_tu = load_graph_split(test_unseen_path, max_edges=None)
     tu_loader = LinkNeighborLoader(
         data=tu_data,
         num_neighbors=NUM_NEIGHBORS,
@@ -396,20 +276,18 @@ def main():
         T=MC_SAMPLES_T,
         uncertainty_threshold=UNCERTAINTY_THRESHOLD,
     )
-    tu_res["split"] = "Test_unseen (Zero-day)"
+    tu_res["split"] = "Test_unseen (Unseen Attack)"
     tu_res["total_file_rows"] = total_tu
     del tu_loader, tu_data
     gc.collect()
     print(f"      -> Hoàn tất Test_unseen ({tu_res['rows']:,} cạnh) trong {tu_res['eval_time_sec']}s.\n")
 
-    # Lưu kết quả ra results/metrics/uq_mc_dropout_metrics.json
     os.makedirs(os.path.dirname(out_metrics_path), exist_ok=True)
     with open(out_metrics_path, "w", encoding="utf-8") as f:
         json.dump([ts_res, tu_res], f, indent=2, ensure_ascii=False)
 
-    # In bảng so sánh Trước UQ và Sau UQ
     print("=" * 92)
-    print("BẢNG SO SÁNH HIỆU NĂNG TRƯỚC UQ (DETERMINISTIC) VÀ SAU UQ (MC DROPOUT T=20)")
+    print("BẢNG SO SÁNH HIỆU NĂNG TRƯỚC UQ (DETERMINISTIC) VÀ SAU UQ (2-BRANCH FILTERING T=20)")
     print("=" * 92)
     header = (
         f"{'Tập dữ liệu':<22} | {'Trạng thái':<14} | {'Precision':>10} | "
@@ -432,7 +310,7 @@ def main():
         )
         print("-" * 92)
 
-    print("\n[PHÂN TÍCH ĐỊNH LƯỢNG BẤT ĐỊNH (EPISTEMIC UNCERTAINTY) & LỌC BÁO ĐỘNG GIẢ]")
+    print("\n[PHÂN TÍCH ĐỊNH LƯỢNG BẤT ĐỊNH (EPISTEMIC UNCERTAINTY) & NGHỊCH LÝ LỌC 2 NHÁNH]")
     for res in [ts_res, tu_res]:
         sp = res["split"]
         b = res["before_uq"]

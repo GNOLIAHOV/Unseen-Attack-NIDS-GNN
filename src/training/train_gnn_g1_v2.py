@@ -8,7 +8,6 @@ import numpy as np
 import polars as pl
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from sklearn.metrics import (
     average_precision_score,
     f1_score,
@@ -17,7 +16,18 @@ from sklearn.metrics import (
 )
 from torch_geometric.data import Data
 from torch_geometric.loader import LinkNeighborLoader
-from torch_geometric.nn import GATv2Conv
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+from src.models.gnn_architectures import (
+    EDGE_ATTR_DIM,
+    HIDDEN_DIM,
+    NODE_INIT_DIM,
+    NON_FEATURE_COLS,
+    NUM_HEADS,
+    NUM_TOTAL_NODES,
+    GNNInductiveGATv2,
+    compute_inductive_node_features,
+)
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -26,130 +36,17 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 
-NUM_TOTAL_NODES = 284_339
-NODE_INIT_DIM = 16
-HIDDEN_DIM = 64
-NUM_HEADS = 2
-EDGE_ATTR_DIM = 41
 BATCH_SIZE = 4096
 EVAL_BATCH_SIZE = 8192
 NUM_NEIGHBORS = [10, 10]
-POS_WEIGHT_VAL = 4.0  # Trọng số phạt lớp dương (Attack) để chống mất cân bằng miền UNSW-NB15
-NON_FEATURE_COLS = ["src_node_id", "dst_node_id", "label", "Attack", "Dataset"]
-
-
-class GNNInductiveGATv2(nn.Module):
-    """
-    Kiến trúc G1_v2 (Inductive Edge-Aware GATv2 + LayerNorm):
-    1. Khởi tạo Node bằng hằng số `torch.ones((284339, 16))` (chống học thuộc lòng ID nút).
-    2. 2 lớp `GATv2Conv(edge_dim=41)` đưa trực tiếp 41 đặc trưng NetFlow vào cơ chế Dynamic Attention,
-       giúp mô hình tự động lọc các luồng láng giềng đáng ngờ thay vì cộng tổng (Sum Aggregation) bị lệch theo bậc nút.
-    3. `LayerNorm` sau mỗi lớp GATv2Conv và trên `edge_attr` để ổn định phân phối biểu diễn giữa các miền dữ liệu.
-    4. MLP Classifier kết hợp `[node_src || node_dst || edge_attr]` để dự đoán xác suất tấn công.
-    """
-
-    def __init__(
-        self,
-        node_init_dim: int = NODE_INIT_DIM,
-        hidden_dim: int = HIDDEN_DIM,
-        heads: int = NUM_HEADS,
-        edge_attr_dim: int = EDGE_ATTR_DIM,
-    ):
-        super().__init__()
-        out_per_head = hidden_dim // heads
-
-        self.node_proj = nn.Linear(node_init_dim, hidden_dim)
-        self.edge_norm = nn.LayerNorm(edge_attr_dim)
-
-        # Lớp GATv2Conv 1 (Multi-head Attention có tích hợp edge_dim=41)
-        self.gat1 = GATv2Conv(
-            in_channels=hidden_dim,
-            out_channels=out_per_head,
-            heads=heads,
-            concat=True,
-            edge_dim=edge_attr_dim,
-            dropout=0.1,
-            add_self_loops=True,
-        )
-        self.norm1 = nn.LayerNorm(hidden_dim)
-
-        # Lớp GATv2Conv 2 (Multi-head Attention có tích hợp edge_dim=41)
-        self.gat2 = GATv2Conv(
-            in_channels=hidden_dim,
-            out_channels=out_per_head,
-            heads=heads,
-            concat=True,
-            edge_dim=edge_attr_dim,
-            dropout=0.1,
-            add_self_loops=True,
-        )
-        self.norm2 = nn.LayerNorm(hidden_dim)
-
-        # Nhánh chiếu trực tiếp đặc trưng cạnh mục tiêu (Edge Residual Skip) kết hợp với biểu diễn Node
-        classifier_in_dim = hidden_dim * 2 + edge_attr_dim
-        self.classifier = nn.Sequential(
-            nn.Linear(classifier_in_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Dropout(p=0.15),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.LayerNorm(hidden_dim // 2),
-            nn.GELU(),
-            nn.Linear(hidden_dim // 2, 1),
-        )
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        edge_index: torch.Tensor,
-        edge_attr: torch.Tensor,
-        edge_label_index: torch.Tensor,
-        target_edge_attr: torch.Tensor,
-    ) -> torch.Tensor:
-        # 1. Chiếu vector hằng số của node [N, 16] -> [N, 64]
-        h = F.gelu(self.node_proj(x))
-
-        # Chuẩn hóa nhẹ đặc trưng cạnh bằng LayerNorm để giảm Covariate Shift giữa các tập con
-        e_sub = self.edge_norm(edge_attr)
-        e_target = self.edge_norm(target_edge_attr)
-
-        # Truyền thông điệp hai chiều để cả IP nguồn và IP đích đều cập nhật ngữ cảnh qua GATv2 Attention
-        rev_edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0)
-        bi_edge_index = torch.cat([edge_index, rev_edge_index], dim=1)
-        bi_edge_attr = torch.cat([e_sub, e_sub], dim=0)
-
-        # 2. Qua 2 lớp GATv2Conv + LayerNorm + Residual
-        h1 = self.gat1(h, bi_edge_index, edge_attr=bi_edge_attr)
-        h1 = F.gelu(self.norm1(h1))
-
-        h2 = self.gat2(h1, bi_edge_index, edge_attr=bi_edge_attr)
-        h2 = F.gelu(self.norm2(h2 + h1))
-
-        # 3. Trích xuất biểu diễn của node nguồn và node đích
-        src_idx, dst_idx = edge_label_index[0], edge_label_index[1]
-        node_src = h2[src_idx]  # [batch_size, 64]
-        node_dst = h2[dst_idx]  # [batch_size, 64]
-
-        # 4. Phép nối [node_src || node_dst || edge_attr] -> [batch_size, 169]
-        edge_repr = torch.cat([node_src, node_dst, e_target], dim=-1)
-
-        # 5. Dự đoán logit
-        logits = self.classifier(edge_repr).squeeze(-1)
-        return logits
+POS_WEIGHT_VAL = 1.3
 
 
 def load_graph_split(
     parquet_path: str,
-    static_node_x: torch.Tensor,
     max_edges: int | None = None,
 ) -> tuple[Data, int]:
-    """
-    Đọc file Parquet bằng Polars và đóng gói thành đối tượng PyG Data:
-    - x         : torch.ones((284339, 16))
-    - edge_index: [2, E] (int64)
-    - edge_attr : [E, 41] (float32)
-    - y         : [E] (float32)
-    """
+    """Đọc file Parquet bằng Polars và khởi tạo đối tượng PyG Data với đặc trưng đỉnh quy nạp."""
     lf = pl.scan_parquet(parquet_path)
     total_edges = lf.select(pl.len()).collect(engine="streaming").item()
     schema_cols = lf.collect_schema().names()
@@ -179,8 +76,9 @@ def load_graph_split(
     del df_feat
     gc.collect()
 
+    node_x = compute_inductive_node_features(edge_index, num_nodes=NUM_TOTAL_NODES)
     data = Data(
-        x=static_node_x,
+        x=node_x,
         edge_index=edge_index,
         edge_attr=edge_attr,
         y=y,
@@ -195,11 +93,7 @@ def evaluate_model(
     full_target_edge_attr: torch.Tensor,
     device: torch.device,
 ) -> tuple[dict, np.ndarray, np.ndarray]:
-    """
-    Đánh giá mô hình G1_v2 không dùng gradient (torch.no_grad()):
-    - Duyệt toàn bộ batch trong loader
-    - Tính toán Precision, Recall, F1-score, PR-AUC.
-    """
+    """Đánh giá mô hình G1_v2 không dùng gradient (torch.no_grad())."""
     model.eval()
     t0 = time.time()
 
@@ -261,36 +155,29 @@ def main():
     np.random.seed(42)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    data_dir = "data"
-    train_parquet = os.path.join(data_dir, "edges_train.parquet")
-    val_parquet = os.path.join(data_dir, "edges_val.parquet")
-    test_seen_parquet = os.path.join(data_dir, "edges_test_seen.parquet")
-    test_unseen_parquet = os.path.join(data_dir, "edges_test_unseen.parquet")
-    model_save_path = os.path.join(data_dir, "gatv2_g1_v2_model.pt")
+    proc_dir = os.path.join("data", "processed")
+    train_parquet = os.path.join(proc_dir, "edges_train.parquet")
+    val_parquet = os.path.join(proc_dir, "edges_val.parquet")
+    test_seen_parquet = os.path.join(proc_dir, "edges_test_seen.parquet")
+    test_unseen_parquet = os.path.join(proc_dir, "edges_test_unseen.parquet")
+    os.makedirs(os.path.join("models", "gnns"), exist_ok=True)
+    model_save_path = os.path.join("models", "gnns", "gatv2_g1_v2_model.pt")
 
-    train_max_edges = 4_096_000
-    eval_seen_max_edges = 1_000_000
-
-    # Khởi tạo Node Inductive bằng hằng số torch.ones((284339, 16))
-    static_node_x = torch.ones((NUM_TOTAL_NODES, NODE_INIT_DIM), dtype=torch.float32)
+    train_max_edges = 1_024_000
+    eval_seen_max_edges = 200_000
 
     print("=" * 90)
-    print("HUẤN LUYỆN & ĐÁNH GIÁ G1_v2 (INDUCTIVE GATv2Conv + LAYERNORM + POS_WEIGHT RE-WEIGHTING)")
+    print("HUẤN LUYỆN & ĐÁNH GIÁ G1_v2 (INDUCTIVE GATv2Conv + LAYERNORM + DUAL-PATHWAY)")
     print("=" * 90)
     print(f"- Thiết bị (Device)            : {device}")
-    print(f"- Khởi tạo Node (Inductive)    : torch.ones(({NUM_TOTAL_NODES}, {NODE_INIT_DIM})) - Không dùng nn.Embedding")
+    print(f"- Khởi tạo Node (Inductive)    : Topological Node Init ({NUM_TOTAL_NODES:,} x {NODE_INIT_DIM}) - Không dùng nn.Embedding")
     print(f"- Kiến trúc Message Passing    : 2 lớp GATv2Conv (heads={NUM_HEADS}, edge_dim={EDGE_ATTR_DIM}) + LayerNorm")
-    print(f"- Xử lý mất cân bằng miền/lớp  : BCEWithLogitsLoss(pos_weight={POS_WEIGHT_VAL:.1f})")
+    print(f"- Hàm mất mát                  : BCEWithLogitsLoss(pos_weight={POS_WEIGHT_VAL:.1f}) trên Dual-Pathway")
     print(f"- Cấu hình LinkNeighborLoader  : num_neighbors={NUM_NEIGHBORS}, batch_size={BATCH_SIZE}, shuffle=True\n")
 
-    # =========================================================================
-    # 1. NẠP ĐỒ THỊ TRAIN & HUẤN LUYỆN 1 EPOCH
-    # =========================================================================
-    print("[1/3] Đang đọc 'data/edges_train.parquet' và khởi tạo đồ thị Train...")
+    print("[1/3] Đang đọc 'data/processed/edges_train.parquet' và khởi tạo đồ thị Train...")
     t0 = time.time()
-    train_data, total_train_rows = load_graph_split(
-        train_parquet, static_node_x, max_edges=train_max_edges
-    )
+    train_data, total_train_rows = load_graph_split(train_parquet, max_edges=train_max_edges)
     train_loader = LinkNeighborLoader(
         data=train_data,
         num_neighbors=NUM_NEIGHBORS,
@@ -315,7 +202,7 @@ def main():
 
     pos_weight_tensor = torch.tensor([POS_WEIGHT_VAL], dtype=torch.float32, device=device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1.5e-3, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=2.0e-3, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_train_batches)
 
     model.train()
@@ -329,21 +216,22 @@ def main():
         target_edge_attr = train_data.edge_attr[batch.input_id.cpu()].to(device)
         target_labels = batch.edge_label.float()
 
-        logits = model(
+        h, bi_ei, bi_ea, eli, e_target = model.encode_subgraph(
             x=batch.x,
             edge_index=batch.edge_index,
             edge_attr=batch.edge_attr,
             edge_label_index=batch.edge_label_index,
             target_edge_attr=target_edge_attr,
         )
-        loss = criterion(logits, target_labels)
+        logit_topo, logit_flow = model.forward_dual_logits(h, bi_ei, bi_ea, eli, e_target)
+        loss = 0.5 * criterion(logit_topo, target_labels) + 0.5 * criterion(logit_flow, target_labels)
         loss.backward()
         optimizer.step()
         scheduler.step()
 
         running_loss += loss.item()
 
-        if (batch_idx + 1) % 200 == 0 or (batch_idx + 1) == num_train_batches:
+        if (batch_idx + 1) % 50 == 0 or (batch_idx + 1) == num_train_batches:
             avg_loss = running_loss / (batch_idx + 1)
             elapsed = time.time() - epoch_t0
             print(
@@ -369,15 +257,11 @@ def main():
     del train_loader, train_data
     gc.collect()
 
-    # =========================================================================
-    # 2. ĐÁNH GIÁ TRÊN 3 TẬP: VALIDATION, TEST_SEEN, TEST_UNSEEN
-    # =========================================================================
     print("[3/3] Đang đánh giá trên 3 tập Validation, Test_seen và Test_unseen...")
     results_summary = []
 
-    # --- 2.1. Validation ---
-    print("      -> (1/3) Đang đánh giá trên tập Validation ('data/edges_val.parquet')...")
-    val_data, total_val = load_graph_split(val_parquet, static_node_x, max_edges=eval_seen_max_edges)
+    print("      -> (1/3) Đang đánh giá trên tập Validation ('data/processed/edges_val.parquet')...")
+    val_data, total_val = load_graph_split(val_parquet, max_edges=eval_seen_max_edges)
     val_loader = LinkNeighborLoader(
         data=val_data,
         num_neighbors=NUM_NEIGHBORS,
@@ -397,9 +281,8 @@ def main():
         f"F1={val_metrics['f1']:.4f}, Recall={val_metrics['recall']:.4f}, PR-AUC={val_metrics['pr_auc']:.4f}"
     )
 
-    # --- 2.2. Test_seen ---
-    print("      -> (2/3) Đang đánh giá trên tập Test_seen ('data/edges_test_seen.parquet')...")
-    ts_data, total_ts = load_graph_split(test_seen_parquet, static_node_x, max_edges=eval_seen_max_edges)
+    print("      -> (2/3) Đang đánh giá trên tập Test_seen ('data/processed/edges_test_seen.parquet')...")
+    ts_data, total_ts = load_graph_split(test_seen_parquet, max_edges=eval_seen_max_edges)
     ts_loader = LinkNeighborLoader(
         data=ts_data,
         num_neighbors=NUM_NEIGHBORS,
@@ -421,9 +304,8 @@ def main():
         f"F1={ts_metrics['f1']:.4f}, Recall={ts_metrics['recall']:.4f}, PR-AUC={ts_metrics['pr_auc']:.4f}"
     )
 
-    # --- 2.3. Test_unseen (Zero-day: TOÀN BỘ 53,861 cạnh Exploits & Fuzzers) ---
-    print("      -> (3/3) Đang đánh giá trên TOÀN BỘ tập Test_unseen ('data/edges_test_unseen.parquet')...")
-    tu_data, total_tu = load_graph_split(test_unseen_parquet, static_node_x, max_edges=None)
+    print("      -> (3/3) Đang đánh giá trên TOÀN BỘ tập Test_unseen ('data/processed/edges_test_unseen.parquet')...")
+    tu_data, total_tu = load_graph_split(test_unseen_parquet, max_edges=None)
     tu_loader = LinkNeighborLoader(
         data=tu_data,
         num_neighbors=NUM_NEIGHBORS,
@@ -433,12 +315,11 @@ def main():
         shuffle=False,
     )
     tu_metrics, tu_y_true, tu_y_prob = evaluate_model(model, tu_loader, tu_data.edge_attr, device)
-    tu_metrics["split"] = "Test_unseen (Zero-day)"
+    tu_metrics["split"] = "Test_unseen (Unseen Attack)"
     tu_metrics["total_file_rows"] = total_tu
 
-    # Tính PR-AUC khi ghép cân bằng 1:1 với mẫu Benign từ Test_seen
     n_unseen = len(tu_y_true)
-    ben_sample = benign_probs_ref[:n_unseen]
+    ben_sample = np.resize(benign_probs_ref, n_unseen)
     y_comb = np.concatenate([tu_y_true, np.zeros(len(ben_sample), dtype=np.int8)])
     prob_comb = np.concatenate([tu_y_prob, ben_sample])
     pred_comb = (prob_comb >= 0.5).astype(np.int8)
@@ -447,7 +328,6 @@ def main():
     tu_metrics["combined_with_benign_f1"] = float(f1_score(y_comb, pred_comb, zero_division=0))
     tu_metrics["combined_with_benign_pr_auc"] = float(average_precision_score(y_comb, prob_comb))
 
-    # Phân tích chi tiết theo từng họ tấn công Zero-day (Exploits vs Fuzzers)
     attacks = (
         pl.scan_parquet(test_unseen_parquet)
         .select("Attack")
@@ -465,22 +345,19 @@ def main():
             "recall": float(tu_pred[mask].mean()),
             "mean_prob": float(tu_y_prob[mask].mean()),
         }
-    tu_metrics["zero_day_breakdown"] = per_attack_recall
+    tu_metrics["unseen_attack_breakdown"] = per_attack_recall
     results_summary.append(tu_metrics)
 
     del tu_loader, tu_data, tu_y_true, tu_y_prob, benign_probs_ref
     gc.collect()
 
-    # Lưu kết quả ra file JSON
-    metrics_out_path = os.path.join(data_dir, "gnn_g1_v2_metrics.json")
+    os.makedirs(os.path.join("results", "metrics"), exist_ok=True)
+    metrics_out_path = os.path.join("results", "metrics", "gnn_g1_v2_metrics.json")
     with open(metrics_out_path, "w", encoding="utf-8") as f:
         json.dump(results_summary, f, indent=2, ensure_ascii=False)
 
-    # =========================================================================
-    # 3. IN BẢNG KẾT QUẢ & ĐỐI CHIẾU TOÀN DIỆN (B0 vs G0 vs G1 vs G1_v2)
-    # =========================================================================
     print("\n" + "=" * 90)
-    print("BẢNG KẾT QUẢ ĐÁNH GIÁ MÔ HÌNH G1_v2 (GATv2Conv + LAYERNORM + POS_WEIGHT=4.0)")
+    print("BẢNG KẾT QUẢ ĐÁNH GIÁ MÔ HÌNH G1_v2 (GATv2Conv + LAYERNORM + DUAL-PATHWAY)")
     print("=" * 90)
     print(
         f"{'Tập dữ liệu':<24} | {'Số cạnh Eval':>12} | {'Precision':>10} | {'Recall':>10} | {'F1-score':>10} | {'PR-AUC':>10}"
@@ -494,27 +371,25 @@ def main():
         )
     print("-" * 90)
 
-    xgb_recall = 0.4571
-    g0_recall = 0.1990
-    g1_recall = 0.0584
+    xgb_recall = 0.0216
+    g0_recall = 0.0000
     g1v2_recall = tu_metrics["recall"]
 
-    print("\n[ĐỐI CHIẾU TRỰC TIẾP TRÊN TẬP TEST_UNSEEN (ZERO-DAY: EXPLOITS & FUZZERS)]")
-    print(f"1. B0    - XGBoost (Phi đồ thị)            : Recall = {xgb_recall*100:6.2f}% | F1 = 62.74% | PR-AUC (ghép Benign) = 0.9536")
-    print(f"2. G0    - GCN (Transductive nn.Embedding) : Recall = {g0_recall*100:6.2f}% | F1 = 33.20% | PR-AUC (ghép Benign) = 0.8898")
-    print(f"3. G1    - GINEConv (Sum Aggregation)      : Recall = {g1_recall*100:6.2f}% | F1 = 11.03% | PR-AUC (ghép Benign) = 0.6523")
+    print("\n[ĐỐI CHIẾU TRỰC TIẾP TRÊN TẬP TEST_UNSEEN (UNSEEN: BOT & INFILTERATION)]")
+    print(f"1. B0    - XGBoost (Phi đồ thị)            : Recall = {xgb_recall*100:6.2f}% | F1 =  4.22%")
+    print(f"2. G0    - GCN (Transductive nn.Embedding) : Recall = {g0_recall*100:6.2f}% | F1 =  0.00%")
     print(
-        f"4. G1_v2 - GATv2Conv + LayerNorm + Reweight: Recall = {g1v2_recall*100:6.2f}% | "
+        f"3. G1_v2 - GATv2Conv + LayerNorm           : Recall = {g1v2_recall*100:6.2f}% | "
         f"F1 = {tu_metrics['f1']*100:6.2f}% | PR-AUC (ghép Benign) = {tu_metrics['combined_with_benign_pr_auc']:.4f}"
     )
     print(
         f"-> So sánh G1_v2 với XGBoost (B0): {(g1v2_recall - xgb_recall)*100:+.2f}% Recall "
-        f"({tu_metrics['TP']:,} / {tu_metrics['rows']:,} luồng Zero-day được phát hiện, Mean Prob = {tu_metrics['mean_pred_prob']:.4f})"
+        f"({tu_metrics['TP']:,} / {tu_metrics['rows']:,} luồng Unseen được phát hiện, Mean Prob = {tu_metrics['mean_pred_prob']:.4f})"
     )
-    print("- Chi tiết theo từng họ tấn công Zero-day (G1_v2 - GATv2Conv):")
-    for atk, info in tu_metrics["zero_day_breakdown"].items():
+    print("- Chi tiết theo từng họ tấn công Unseen (G1_v2 - GATv2Conv):")
+    for atk, info in tu_metrics["unseen_attack_breakdown"].items():
         print(
-            f"   + {atk:<10}: {info['detected_tp']:>6,}/{info['count']:<6,} phát hiện được "
+            f"   + {atk:<14}: {info['detected_tp']:>6,}/{info['count']:<6,} phát hiện được "
             f"| Recall = {info['recall']*100:>6.2f}% | Mean Prob = {info['mean_prob']:.4f}"
         )
     print("=" * 90)
