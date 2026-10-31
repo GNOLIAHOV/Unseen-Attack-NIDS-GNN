@@ -41,7 +41,11 @@ KLTN_NF-UQ-NIDS-v2/
 ├── data/                                 # Quản lý vòng đời dữ liệu (loại trừ khỏi Git qua .gitignore)
 │   ├── raw/                              # Dữ liệu gốc NF-UQ-NIDS-v2.csv (~13.7 GB) & gói nén .zip
 │   ├── interim/                          # 4 tập CSV sau khi lọc trùng & chia Inductive Split (train, val, test_seen, test_unseen)
-│   └── processed/                        # Dữ liệu cạnh đồ thị (.parquet), ip_node_map, demo_microbatch & preprocessor_params.json
+│   ├── processed/                        # Dữ liệu cạnh đồ thị (.parquet), ip_node_map, demo_microbatch & preprocessor_params.json
+│   └── samples/                          # Mẫu lưu lượng mạng thực tế & file Wireshark phục vụ kiểm thử Web Console
+│       ├── real_traffic_sample.csv       # 500 luồng NetFlow thực tế chưa chuẩn hóa (43 cột)
+│       ├── sample_external_wireshark_log.csv # Mẫu log Wireshark 8 cột kiểm thử cơ chế tự bù khuyết trường
+│       └── README.md                     # Hướng dẫn chi tiết kiểm thử mẫu dữ liệu
 ├── models/                               # Trọng số các mô hình đã huấn luyện
 │   ├── baselines/
 │   │   └── xgboost_baseline_b0.json      # Mô hình Baseline phi đồ thị (B0 - XGBoost)
@@ -59,8 +63,10 @@ KLTN_NF-UQ-NIDS-v2/
 │       ├── uq_three_way_metrics.json     # Kết quả quyết định 3 nhánh Three-way UQ (T=20)
 │       ├── osr_open_set_metrics.json     # Kết quả Mục 15.1: Nhận dạng Tập Mở (AUROC, AUPR, OSCR, 3x3 CM)
 │       └── throughput_benchmark.json     # Đo lường thông lượng (Throughput), độ trễ (Latency) & bộ nhớ
-├── src/                                  # Mã nguồn cốt lõi (Core Source Code)
+├── src/                                  # Mã nguồn cốt lõi (Core Python Modules)
+│   ├── __init__.py                       # Đánh dấu mô-đun gói tin Python cấp cao
 │   ├── data_prep/
+│   │   ├── __init__.py
 │   │   ├── eda_check.py                  # Thống kê khám phá dữ liệu bằng Polars Streaming
 │   │   ├── data_split.py                 # Chia dữ liệu theo giao thức Inductive Split (Out-of-core Hash Partition)
 │   │   └── preprocess_and_graph.py       # Chuẩn hóa chống rò rỉ dữ liệu & trích xuất cạnh đồ thị PyG
@@ -68,15 +74,20 @@ KLTN_NF-UQ-NIDS-v2/
 │   │   ├── __init__.py                   # Xuất khẩu các lớp kiến trúc GNN dùng chung
 │   │   └── gnn_architectures.py          # Định nghĩa GNNBaselineG0, GNNInductiveG1, GNNInductiveGATv2 & Node Init
 │   ├── training/
+│   │   ├── __init__.py
 │   │   ├── train_baseline_b0.py          # Huấn luyện & đánh giá Baseline B0 (XGBoost)
 │   │   ├── train_gnn_g0.py               # Huấn luyện & đánh giá G0 (Transductive GCN)
 │   │   ├── train_gnn_g1.py               # Huấn luyện & đánh giá G1 (Inductive GINEConv)
 │   │   └── train_gnn_g1_v2.py            # Huấn luyện & đánh giá G1_v2 (Inductive GATv2 + LayerNorm)
 │   └── evaluation/
+│       ├── __init__.py
 │       ├── evaluate_uq_mc_dropout.py     # Đánh giá MC Dropout (T=20) với cơ chế lọc báo động giả 2 nhánh
 │       ├── evaluate_uq_three_way.py      # Đánh giá quy tắc quyết định 3 nhánh (Three-way UQ Decision)
 │       ├── evaluate_osr_open_set.py      # Đánh giá Mục 15.1: Open-Set Recognition (AUROC, AUPR-Out, OSCR)
 │       └── eval_throughput.py            # Đo lường thông lượng (Throughput), độ trễ (Latency) & bộ nhớ
+├── tools/                                # Công cụ hỗ trợ & tiện ích chuyển đổi dữ liệu
+│   ├── __init__.py
+│   └── pcap_to_netflow.py                # Chuyển đổi file bắt gói tin thực tế (.pcap / .pcapng) sang NetFlow CSV
 ├── docs/                                 # Đề cương và báo cáo khóa luận tốt nghiệp (.docx)
 ├── .gitignore                            # Cấu hình loại trừ các file dữ liệu, môi trường ảo và trọng số nặng
 ├── requirements.txt                      # Danh sách thư viện Python phụ thuộc đã tinh gọn và chuẩn hóa
@@ -184,6 +195,15 @@ Giao diện **React 18 + TypeScript Console (`app/web/`)** đã được đóng 
 - **Số liệu thực nghiệm JSON:** [http://127.0.0.1:8000/metrics](http://127.0.0.1:8000/metrics)
 
 *(Tùy chọn: Nếu chỉnh sửa mã nguồn giao diện trong `app/web/src/`, chạy `npm --prefix app/web run build` để cập nhật bản đóng gói tĩnh hoặc `npm --prefix app/web run dev` để chạy Vite Dev Server tại cổng `5173`).*
+
+### 4.4. Thử nghiệm Dữ liệu Mạng Thực tế & Chuyển đổi Gói tin Wireshark
+- **Cách 1 — Thử nghiệm trực tiếp tệp mẫu:** Mở [http://127.0.0.1:8000/](http://127.0.0.1:8000/), bấm **"Tải tệp .parquet / .csv"** và chọn `data/samples/real_traffic_sample.csv` (500 luồng NetFlow thật) hoặc `data/samples/sample_external_wireshark_log.csv` (log Wireshark 8 cột).
+- **Cách 2 — Tự bắt gói tin máy tính & suy luận trực tiếp:**
+  ```powershell
+  # Bắt gói tin qua Wireshark và lưu dạng file.pcap hoặc file.pcapng, sau đó chuyển đổi:
+  python tools/pcap_to_netflow.py duong_dan_goi_tin.pcapng data/samples/my_traffic.csv
+  ```
+  Tải tệp `data/samples/my_traffic.csv` lên Web Console để theo dõi mô hình phân loại lưu lượng thường (`Benign ALLOW`) và khoanh vùng cảnh báo các kết nối lạ / đột biến (`Epistemic OSR Alert`).
 
 ---
 

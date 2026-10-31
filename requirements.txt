@@ -3,13 +3,17 @@
 # Đề tài: Nghiên cứu biểu diễn đồ thị và Graph Neural Network cho phát hiện
 #         các họ tấn công chưa xuất hiện trong huấn luyện trên dữ liệu NetFlow
 # =============================================================================
-# 1. Ghi chú cài đặt pyg_lib (hỗ trợ lấy mẫu đồ thị con LinkNeighborLoader):
+# 1. Hướng dẫn cài đặt pyg_lib (tùy chọn - tăng tốc lấy mẫu LinkNeighborLoader):
 #    pip install pyg_lib -f https://data.pyg.org/whl/torch-2.14.0+cpu.html
 #
-# 2. Ghi chú đóng gói giao diện Web Console (React 18 + TypeScript + Vite):
-#    Bản dựng tĩnh (app/web/dist/) đã được biên dịch sẵn và tích hợp vào FastAPI.
-#    Nếu muốn biên dịch lại giao diện từ mã nguồn TypeScript:
+# 2. Giao diện Web Console (React 18 + TypeScript + Vite, Hallmark Console):
+#    Bản build tĩnh (app/web/dist/) đã được đóng gói sẵn và tích hợp trực tiếp vào FastAPI.
+#    Nếu muốn phát triển hoặc build lại từ mã nguồn:
 #    npm --prefix app/web install && npm --prefix app/web run build
+#
+# 3. Công cụ chuyển đổi gói tin Wireshark (tools/pcap_to_netflow.py):
+#    Hoạt động hoàn toàn trên thư viện chuẩn Python (struct, socket) kết hợp Polars.
+#    Yêu cầu máy tính có cài Wireshark (tùy chọn tự động gọi editcap.exe/tshark.exe).
 # =============================================================================
 
 # 1. Học sâu & Mạng Nơ-ron Đồ thị (Deep Learning & Graph Neural Networks)
@@ -29,5 +33,5 @@ uvicorn>=0.29.0
 pydantic>=2.6.0
 python-multipart>=0.0.9
 
-# 4. Đo lường Tài nguyên Hệ thống (System Profiling)
+# 4. Đo lường Tài nguyên Hệ thống & Hiệu năng (System Profiling & Benchmarking)
 psutil>=5.9.0

@@ -16,11 +16,16 @@ __pycache__/
 /data/_tmp_buckets/
 /data/_tmp_seen_buckets/
 
-# Giữ lại các tệp siêu nhẹ (~2.6 MB tổng cộng) trong data/processed/ để chạy Demo ngay khi clone:
+# Giữ lại các tệp siêu nhẹ (~2.6 MB) trong data/processed/ để chạy Demo ngay khi clone:
 !/data/processed/preprocessor_params.json
 !/data/processed/demo_microbatch.parquet
 !/data/processed/demo_microbatch.csv
 !/data/processed/ip_node_map.parquet
+
+# Giữ lại các tệp mẫu kiểm thử nhẹ trong data/samples/:
+!/data/samples/README.md
+!/data/samples/real_traffic_sample.csv
+!/data/samples/sample_external_wireshark_log.csv
 
 # 4. Trọng số mô hình nặng (>50 MB)
 # Chỉ loại trừ gcn_g0_model.pt (~72.8 MB do bảng nn.Embedding 284,339 nút),
@@ -38,3 +43,10 @@ Thumbs.db
 .vscode/
 .idea/
 ~$*.docx
+
+# 7. Bắt gói tin cá nhân & dữ liệu kiểm thử cục bộ (Personal captures & local traffic)
+*.pcap
+*.pcapng
+*my_traffic*
+*test_traffic*
+real_world_traffic.csv

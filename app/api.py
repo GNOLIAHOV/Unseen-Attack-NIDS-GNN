@@ -379,6 +379,23 @@ class PredictBatchRequest(BaseModel):
     )
 
 
+COMMON_ALIASES = {
+    "ipv4_src_addr": "IPV4_SRC_ADDR", "src_ip": "IPV4_SRC_ADDR", "source_ip": "IPV4_SRC_ADDR", "ip.src": "IPV4_SRC_ADDR", "src_addr": "IPV4_SRC_ADDR",
+    "ipv4_dst_addr": "IPV4_DST_ADDR", "dst_ip": "IPV4_DST_ADDR", "dest_ip": "IPV4_DST_ADDR", "destination_ip": "IPV4_DST_ADDR", "ip.dst": "IPV4_DST_ADDR", "dst_addr": "IPV4_DST_ADDR",
+    "l4_src_port": "L4_SRC_PORT", "src_port": "L4_SRC_PORT", "sport": "L4_SRC_PORT", "source_port": "L4_SRC_PORT", "tcp.srcport": "L4_SRC_PORT", "udp.srcport": "L4_SRC_PORT",
+    "l4_dst_port": "L4_DST_PORT", "dst_port": "L4_DST_PORT", "dport": "L4_DST_PORT", "dest_port": "L4_DST_PORT", "tcp.dstport": "L4_DST_PORT", "udp.dstport": "L4_DST_PORT",
+    "protocol": "PROTOCOL", "proto": "PROTOCOL", "ip.proto": "PROTOCOL",
+    "in_bytes": "IN_BYTES", "bytes": "IN_BYTES", "tot_bytes": "IN_BYTES", "src_bytes": "IN_BYTES", "total_bytes": "IN_BYTES",
+    "in_pkts": "IN_PKTS", "pkts": "IN_PKTS", "packets": "IN_PKTS", "tot_pkts": "IN_PKTS", "src_pkts": "IN_PKTS", "total_packets": "IN_PKTS",
+    "out_bytes": "OUT_BYTES", "dst_bytes": "OUT_BYTES",
+    "out_pkts": "OUT_PKTS", "dst_pkts": "OUT_PKTS",
+    "flow_duration_milliseconds": "FLOW_DURATION_MILLISECONDS", "duration": "FLOW_DURATION_MILLISECONDS", "flow_duration": "FLOW_DURATION_MILLISECONDS",
+    "tcp_flags": "TCP_FLAGS", "flags": "TCP_FLAGS",
+    "min_ttl": "MIN_TTL", "ttl": "MIN_TTL", "ip.ttl": "MIN_TTL",
+    "max_ttl": "MAX_TTL",
+}
+
+
 def _format_dataframe_response(
     df: pl.DataFrame,
     filename: str,
@@ -386,12 +403,38 @@ def _format_dataframe_response(
     std_threshold: float,
     t0: float,
 ) -> dict[str, Any]:
+    # 1. Tự động tương thích tên cột: nhận diện các biến thể tên cột thực tế (Wireshark, Zeek, nfdump)
+    rename_map = {}
+    lower_cols = {c.lower(): c for c in df.columns}
+    for alias_low, target_col in COMMON_ALIASES.items():
+        if target_col not in df.columns and alias_low in lower_cols:
+            rename_map[lower_cols[alias_low]] = target_col
+    if rename_map:
+        df = df.rename(rename_map)
+
+    # 2. Bù đắp đặc trưng mở rộng nếu tải lên file log mạng bên ngoài
     missing_cols = [c for c in FEATURE_COLS if c not in df.columns]
+    has_network_fields = any(
+        c in df.columns
+        for c in [
+            "L4_SRC_PORT",
+            "L4_DST_PORT",
+            "PROTOCOL",
+            "IN_BYTES",
+            "IN_PKTS",
+            "IPV4_SRC_ADDR",
+            "src_node_id",
+        ]
+    )
     if missing_cols:
-        raise HTTPException(
-            status_code=422,
-            detail=f"File thiếu các cột đặc trưng bắt buộc: {missing_cols[:5]}...",
-        )
+        if has_network_fields:
+            add_exprs = [pl.lit(0.0).alias(c) for c in missing_cols]
+            df = df.with_columns(add_exprs)
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=f"File không chứa các đặc trưng mạng NetFlow hợp lệ (thiếu: {missing_cols[:5]}...).",
+            )
 
     if "src_node_id" in df.columns and "dst_node_id" in df.columns:
         src_nodes = df["src_node_id"].to_list()
