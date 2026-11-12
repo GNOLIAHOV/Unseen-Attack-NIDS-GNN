@@ -14,7 +14,10 @@
 
 ## 1. Giới thiệu & Bối cảnh Nghiên cứu
 
-Các Hệ thống Phát hiện Xâm nhập Mạng (NIDS) dựa trên Học máy truyền thống thường đạt độ chính xác rất cao trên các cuộc tấn công đã biết (seen attacks), nhưng lại suy giảm hiệu năng nghiêm trọng khi đối mặt với **các họ tấn công mới chưa từng xuất hiện trong quá trình huấn luyện (unseen attack families — bài toán Nhận dạng Tập Mở / Open-Set Recognition)**. Nguyên nhân cốt lõi là do các mô hình bảng (tabular models) xử lý từng luồng mạng (flow) một cách độc lập, bỏ qua cấu trúc liên kết toàn cục giữa các máy trạm (hosts) và đưa ra dự đoán quá tự tin (overconfident predictions) trên dữ liệu ngoại lai (**Out-of-Distribution / Open-Set Unknown**).
+Các hệ thống phát hiện xâm nhập mạng (NIDS) dựa trên học máy truyền thống thường đạt độ chính xác rất cao trên các cuộc tấn công đã biết (seen attacks), nhưng lại suy giảm hiệu năng nghiêm trọng khi đối mặt với **các họ tấn công mới chưa từng xuất hiện trong quá trình huấn luyện (unseen attack families — bài toán Nhận dạng Tập Mở / Open-Set Recognition)**. 
+
+Nguyên nhân cốt lõi là do các mô hình bảng (tabular models) xử lý từng luồng mạng (flow) một cách độc lập, bỏ qua cấu trúc liên kết toàn cục giữa các máy trạm (hosts) và đưa ra dự đoán quá tự tin (overconfident predictions) trên dữ liệu ngoại lai (**Out-of-Distribution / Open-Set Unknown**).
+
 
 Dự án này giải quyết bài toán trên thông qua ba trụ cột kỹ thuật chính trên bộ dữ liệu quy mô lớn **NF-UQ-NIDS-v2** (~75.87 triệu luồng NetFlow duy nhất, 284,339 nút IP):
 1. **Biểu diễn Đồ thị Luồng – Máy trạm (Host-Flow Graph) & Kiến trúc Inductive Edge-Aware GATv2:** Mã hóa các địa chỉ IP thành đỉnh (nodes) với khởi tạo đặc trưng cấu trúc quy nạp 16 chiều (`Topological Node Init` không phụ thuộc định danh tĩnh `nn.Embedding`), kết hợp cơ chế truyền thông điệp chú ý động hai chiều (`GATv2Conv` tích hợp trực tiếp 41 đặc trưng cạnh NetFlow cùng `LayerNorm` và cấu trúc giải mã hai nhánh `Dual-Pathway`: nhánh Cấu trúc Đồ thị và nhánh Đặc trưng Luồng).
@@ -121,7 +124,8 @@ Với mỗi luồng giao tiếp $e=(u, v)$ trong một micro-batch/sliding windo
 | **5. `GATv2 + 2-Branch UQ (`T=20`)`** | Lọc báo động giả 2 nhánh ($\tau_{\text{std}}=0.15$) | `99.27%` | `87.42%` | `92.97%` | `44.02%` | `61.13%` | `114,205 / 259,458` |
 | **6. `GATv2 + Three-way OSR (`T=20`)`** | **Quyết định 3 nhánh Tập Mở ($T=20$, $\tau=0.15$)** | **`92.06%` (`99.27%`*)** | **`99.30%` (`99.21%`*)** | **`95.55%` (`99.24%`*)** | **`91.81%`** | **`95.73%`** | **`238,196 / 259,458`** |
 
-> *Ghi chú (\*): Chỉ số trong ngoặc trên tập `Test_seen` là hiệu năng tại **Vùng quyết định tự tin (Nhánh 0 & Nhánh 1, $\hat{\sigma} \le 0.15$, chiếm `86.84%` tổng lưu lượng)** — giảm **73.5% báo động giả (FP từ `3,251` xuống `860` luồng)** và đạt **Precision `99.27%`**, **Recall `99.21%`**, **F1-score `99.24%`**. Trên tập `Test_unseen` (`Bot` & `Infiltration`), độ bất định nhận thức trung bình tăng vọt gấp **3.15 lần** so với `Test_seen` (`0.1441` so với `0.0458`). Cơ chế **Three-way OSR** khắc phục triệt để nghịch lý lọc bất định 2 nhánh (nâng Recall từ `44.02%` của lọc 2 nhánh và `82.17%` của `T=1` lên **`91.81%`**, F1 đạt **`95.73%`**), phát hiện **`96.72%` Bot (`138,399 / 143,097`)** và **`85.76%` Infiltration (`99,797 / 116,361`)**.*
+> *Ghi chú (\*): Chỉ số trong ngoặc trên tập `Test_seen` là hiệu năng tại **Vùng quyết định tự tin (Nhánh 0 & Nhánh 1,  σ̂  ≤ 0.15, chiếm `86.84%` tổng lưu lượng)** — giảm **73.5% báo động giả (FP từ `3,251` xuống `860` luồng)** và đạt **Precision `99.27%`**, **Recall `99.21%`**, **F1-score `99.24%`**.
+> Trên tập `Test_unseen` (`Bot` & `Infiltration`), độ bất định nhận thức trung bình tăng vọt gấp **3.15 lần** so với `Test_seen` (`0.1441` so với `0.0458`). Cơ chế **Three-way OSR** khắc phục triệt để nghịch lý lọc bất định 2 nhánh (nâng Recall từ `44.02%` của lọc 2 nhánh và `82.17%` của `T=1` lên **`91.81%`**, F1 đạt **`95.73%`**), phát hiện **`96.72%` Bot (`138,399 / 143,097`)** và **`85.76%` Infiltration (`99,797 / 116,361`)**.*
 
 ### 3.4. Nhận dạng Tập Mở (Mục 15.1 — Open-Set Recognition Benchmark)
 Đánh giá trên tập hỗn hợp Tập Mở gồm **`459,458` luồng mạng** (`200,000` luồng In-Distribution từ `Test_seen` + `259,458` luồng Open-Set Unknown từ `Test_unseen` thuộc hai họ `Bot` và `Infiltration`, kịch bản `src/evaluation/evaluate_osr_open_set.py`):
@@ -136,7 +140,7 @@ Với mỗi luồng giao tiếp $e=(u, v)$ trong một micro-batch/sliding windo
 - **Hiệu năng Phòng thủ Tổng thể trên toàn bộ 459,458 luồng Tập Mở (`Benign` vs `Threat {Known Attack U Unknown Attack}`):** đạt **Precision = `97.02%`**, **Recall = `94.35%`**, **F1-score = `95.66%`**.
 - **Sự bổ trợ tự nhiên giữa hai nhánh của cơ chế Tập Mở:**
   - Với họ **`Bot` (`143,097` luồng):** Có cấu trúc càn quét tương đồng một phần với các cuộc tấn công đã biết nên Nhánh 1 (`Known Attack`) bắt được `96,120` luồng (`67.17%`) và Nhánh 2 (`Open-Set Unknown Alert`) bắt tiếp `42,279` luồng (`29.55%`), đạt tổng tỷ lệ chặn **`96.72%`**.
-  - Với họ **`Infiltration` (`116,361` luồng):** Là tấn công thẩm thấu ngụy trang tinh vi khiến dự đoán tất định bị lưỡng lự ($\hat{\sigma}_{\text{TB}} = 0.1808$, độ lệch hai nhánh $\Delta_{\text{path, TB}} = 0.2283$), được Nhánh 2 (`Open-Set Unknown Alert`) phát hiện trực tiếp tới **`81,713` luồng (`70.22%`)**, kết hợp Nhánh 1 (`18,084` luồng) nâng tổng tỷ lệ chặn lên **`85.76%`**.
+  - Với họ **`Infiltration` (`116,361` luồng):** Là tấn công thẩm thấu ngụy trang tinh vi khiến dự đoán tất định bị lưỡng lự ($\hat{\sigma}_{\mathrm{TB}} = 0.1808$, độ lệch giữa hai nhánh $\Delta{\mathrm{path,TB}} = 0.2283$), được Nhánh 2 (`Open-Set Unknown Alert`) phát hiện trực tiếp tới **`81,713` luồng (`70.22%`)**, kết hợp Nhánh 1 (`18,084` luồng) nâng tổng tỷ lệ chặn lên **`85.76%`**.
 
 ### 3.5. Hiệu năng Hệ thống (System Throughput & Latency Benchmark)
 Đo lường thực tế trên 50 mini-batches liên tiếp (`204,800` luồng NetFlow, `batch_size = 4096`, `num_neighbors = [10, 10]`):
@@ -213,4 +217,4 @@ Giao diện **React 18 + TypeScript Console (`app/web/`)** đã được đóng 
 - **Sinh viên thực hiện:**
   - **Nguyễn Đức Hưng Thịnh**
   - **Võ Hải Long**
-- **Giảng viên hướng dẫn:** **TS. Võ Quang Hoàng Khang**
+- **Giảng viên hướng dẫn:** **ThS. Võ Quang Hoàng Khang**
